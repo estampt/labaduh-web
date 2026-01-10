@@ -12,13 +12,40 @@ use App\Http\Controllers\Api\V1\AdminVendorApprovalController;
 use App\Http\Controllers\Api\V1\VendorReviewController;
 use App\Http\Controllers\Api\V1\VendorDocumentController;
 use App\Http\Controllers\Api\V1\AdminVendorDocumentController;
+use App\Http\Controllers\Api\V1\ShopAvailabilityController;
+use App\Http\Controllers\Api\V1\JobRequestController;
+use App\Http\Controllers\Api\V1\DriverDeliveryController;
+use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\PaymentWebhookController;
+use App\Http\Controllers\Api\V1\VendorPricingController;
+use App\Http\Controllers\Api\V1\CustomerBroadcastController;
+use App\Http\Controllers\Api\V1\VendorJobController;
 
 Route::prefix('v1')->group(function () {
+    // Payment webhooks (no auth)
+    Route::post('/webhooks/paymongo', [PaymentWebhookController::class, 'paymongo']);
 
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::post('/auth/login', [AuthController::class, 'login']);
 
     Route::middleware('auth:sanctum')->group(function () {
+        // Vendor job offers
+        Route::get('/vendor/job-offers', [VendorJobController::class, 'index']);
+        Route::post('/vendor/job-offers/{offer}/accept', [VendorJobController::class, 'accept']);
+        Route::post('/vendor/job-offers/{offer}/reject', [VendorJobController::class, 'reject']);
+
+        // Driver deliveries
+        Route::get('/driver/deliveries', [DriverDeliveryController::class, 'myDeliveries']);
+        Route::patch('/driver/deliveries/{delivery}/status', [DriverDeliveryController::class, 'updateStatus']);
+
+        // Vendor pricing
+        Route::get('/vendor/pricing', [VendorPricingController::class, 'index']);
+        Route::post('/vendor/pricing/service-prices', [VendorPricingController::class, 'upsertServicePrices']);
+        Route::post('/vendor/pricing/delivery-price', [VendorPricingController::class, 'upsertDeliveryPrice']);
+
+        // Payments
+        Route::post('/orders/{order}/payment-intent', [PaymentController::class, 'createOrderPaymentIntent']);
+        Route::patch('/orders/{order}/fulfillment', [\App\Http\Controllers\Api\V1\FulfillmentController::class, 'set']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
 
@@ -34,6 +61,10 @@ Route::prefix('v1')->group(function () {
 
     Route::get('/vendors/{vendor}/shops', [VendorShopController::class, 'index']);
     Route::get('/vendors/{vendor}/reviews', [VendorReviewController::class, 'index']);
+
+    // Shop availability
+    Route::get('/shops/{shop}/capacity', [ShopAvailabilityController::class, 'capacity']);
+    Route::get('/shops/{shop}/slots', [ShopAvailabilityController::class, 'slots']);
     Route::get('/vendors/{vendor}/services', [VendorServiceController::class, 'list']);
     Route::post('/vendors/{vendor}/pricing/preview', [VendorServiceController::class, 'pricingPreview']);
 
@@ -41,6 +72,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/orders/{order}', [OrderController::class, 'show']);
 
     Route::middleware('auth:sanctum')->post('/orders/{order}/review', [VendorReviewController::class, 'storeForOrder']);
+
+    // Customer creates request then sees ranked vendors
+    Route::middleware('auth:sanctum')->post('/job-requests/match', [JobRequestController::class, 'createAndMatch']);
+    Route::middleware('auth:sanctum')->post('/job-requests/{jobRequest}/broadcast', [CustomerBroadcastController::class, 'broadcast']);
 
     Route::middleware(['auth:sanctum','vendor_or_admin','approved_vendor'])->group(function () {
 
