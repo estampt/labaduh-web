@@ -13,4 +13,8 @@ class Vendor extends Model
     public function deliveryPricingRules() { return $this->hasMany(DeliveryPricingRule::class); }
     public function users() { return $this->hasMany(User::class); }
     public function isApproved(): bool { return $this->approval_status === 'approved' && $this->is_active === true; }
+    public function shops()
+    {
+        return $this->hasMany(\App\Models\VendorShop::class);
+    }
 }

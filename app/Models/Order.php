@@ -21,4 +21,9 @@ class Order extends Model
     public function vendor() { return $this->belongsTo(Vendor::class); }
     public function shop() { return $this->belongsTo(VendorShop::class, 'shop_id'); }
     public function items() { return $this->hasMany(OrderItem::class); }
+
+    public function shop()
+    {
+        return $this->belongsTo(\App\Models\VendorShop::class);
+    }
 }

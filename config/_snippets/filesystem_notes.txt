@@ -1,0 +1,9 @@
+Recommended:
+- set FILESYSTEM_DISK=public in .env
+- run php artisan storage:link
+
+Uploads stored via Storage disk 'public' at:
+storage/app/public/vendors/{vendor_id}/documents/*
+
+Public URL:
+/storage/vendors/{vendor_id}/documents/...
