@@ -49,8 +49,25 @@ return [
     |                    "errorlog", "monolog", "custom", "stack"
     |
     */
-
     'channels' => [
+
+        'stack' => [
+            'driver' => 'stack',
+            'channels' => ['single', 'stderr'],
+            'ignore_exceptions' => false,
+        ],
+
+        'stderr' => [
+            'driver' => 'monolog',
+            'handler' => Monolog\Handler\StreamHandler::class,
+            'with' => [
+                'stream' => 'php://stderr',
+            ],
+            'level' => env('LOG_LEVEL', 'debug'),
+        ],
+    ],
+
+    /*'channels' => [
 
         'stack' => [
             'driver' => 'stack',
@@ -127,6 +144,6 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
-    ],
+    ],*/
 
 ];

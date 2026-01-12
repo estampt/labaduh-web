@@ -19,7 +19,7 @@ class AuthController extends Controller
             'name' => ['required','string','max:255'],
             'email' => ['required','email','max:255', Rule::unique('users','email')],
             'password' => ['required','string','min:6'],
-            'role' => ['sometimes', Rule::in(['customer','vendor'])],
+            'role' => ['sometimes', Rule::in(['customer','vendor','admin'])],
 
             'vendor' => ['sometimes','array'],
             'vendor.name' => ['required_if:role,vendor','string','max:255'],

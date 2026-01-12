@@ -24,4 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions) {
         //
     })
+    ->withMiddleware(function (Middleware $middleware) {
+        $middleware->appendToGroup('api', \App\Http\Middleware\ApiLogger::class);
+    })
+
     ->create();
