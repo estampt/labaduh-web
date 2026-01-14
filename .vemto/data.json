@@ -5,7 +5,7 @@
                 "uuid": "cde7fd54-8cb9-4eaa-aa5f-ea3bb5b9534e",
                 "id": 1,
                 "createdAt": "2026-01-10 19:15:41",
-                "updatedAt": "2026-01-12 20:08:14",
+                "updatedAt": "2026-01-14 21:34:16",
                 "settings": {
                     "cssFramework": "tailwind",
                     "uiStarterKit": "other",
@@ -11998,13 +11998,13 @@
         "schema_sections": {
             "item_1": {
                 "name": "App",
-                "scrollX": 24286,
-                "scrollY": 24546,
-                "zoom": 50,
+                "scrollX": 24263,
+                "scrollY": 24483,
+                "zoom": 40,
                 "projectId": 1,
                 "id": 1,
                 "createdAt": "2026-01-10 19:15:49",
-                "updatedAt": "2026-01-12 20:59:29"
+                "updatedAt": "2026-01-14 21:34:31"
             },
             "__tableData": {
                 "count": 2,

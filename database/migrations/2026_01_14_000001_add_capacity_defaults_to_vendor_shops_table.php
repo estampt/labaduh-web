@@ -14,6 +14,19 @@ return new class extends Migration {
             if (!Schema::hasColumn('vendor_shops', 'default_max_kg_per_day')) {
                 $table->decimal('default_max_kg_per_day', 10, 2)->default(300)->after('default_max_orders_per_day');
             }
+
+            // Structured address
+            if (!Schema::hasColumn('users', 'address_line1')) {
+                $table->string('address_line1')->nullable()->after('contact_number');
+            }
+            if (!Schema::hasColumn('users', 'address_line2')) {
+                $table->string('address_line2')->nullable()->after('address_line1');
+            }
+
+            if (!Schema::hasColumn('users', 'postal_code')) {
+                $table->string('postal_code', 20)->nullable()->after('address_line2');
+            }
+
         });
     }
 

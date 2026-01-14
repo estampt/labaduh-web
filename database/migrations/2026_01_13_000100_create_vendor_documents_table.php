@@ -16,13 +16,8 @@ return new class extends Migration {
 
             $table->foreignId('vendor_id')->constrained('vendors')->cascadeOnDelete();
 
-            // business_registration | government_id | supporting_document
             $table->string('type', 60);
-
-            // stored path relative to storage disk
             $table->string('file_path');
-
-            // pending | approved | rejected
             $table->string('status', 30)->default('pending');
 
             $table->timestamp('reviewed_at')->nullable();

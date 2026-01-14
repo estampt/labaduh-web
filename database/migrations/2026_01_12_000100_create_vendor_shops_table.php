@@ -18,7 +18,6 @@ return new class extends Migration {
             // Shop identity
             $table->string('name');
             $table->string('phone')->nullable();
-            $table->string('address_line');
 
             // Location (match your master tables)
             $table->foreignId('country_id')->nullable()

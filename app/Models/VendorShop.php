@@ -13,6 +13,8 @@ class VendorShop extends Model
         'name','phone','address',
         'latitude','longitude','service_radius_km',
         'country_id','state_province_id','city_id',
+        'address_line1',
+        'address_line2',
         'is_active'
     ];
 
