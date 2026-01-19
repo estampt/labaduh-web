@@ -19,6 +19,7 @@ class AuthController extends Controller
 {
     public function register(Request $request)
     {
+
         $role = $request->input('role', 'customer');
 
         $rules = [
@@ -61,7 +62,6 @@ class AuthController extends Controller
         }
 
         $data = $request->validate($rules);
-
         $result = DB::transaction(function () use ($request, $data, $role) {
 
             $user = User::create([
@@ -69,6 +69,7 @@ class AuthController extends Controller
                 'email' => $data['email'],
                 'password' => Hash::make($data['password']),
                 'role' => $role === 'vendor' ? 'vendor' : 'customer',
+
 
                 'contact_number' => $data['contact_number'] ?? null,
                 'address_line1' => $data['address_line1'] ?? null,
@@ -179,32 +180,115 @@ class AuthController extends Controller
         $user = User::where('email', $data['email'])->first();
 
         if (!$user || !Hash::check($data['password'], $user->password)) {
-            throw ValidationException::withMessages(['email' => ['Invalid credentials.']]);
+            throw ValidationException::withMessages([
+                'email' => ['Invalid credentials.'],
+            ]);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Issue token if login successful
+        |--------------------------------------------------------------------------
+        */
         $token = $user->createToken('api')->plainTextToken;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Access rules BEFORE token issuance
+        |--------------------------------------------------------------------------
+        */
+
+        // Admin can always log in
+        if ($user->role !== 'admin') {
+
+            // Must be OTP verified
+            if (!$user->is_verified) {
+                return response()->json([
+                    'message' => 'Account not verified.',
+                    'reason' => 'otp_required',
+                ], 403);
+            }
+
+            // Vendor must also be approved
+            if ($user->role === 'vendor') {
+
+                // Ensure vendor relationship exists
+                if (!$user->vendor) {
+                    return response()->json([
+                        'message' => 'Vendor profile not found.',
+                    ], 403);
+                }
+
+                // ✅ use approval_status instead of status
+                if ($user->vendor->approval_status !== 'approved') {
+                    return response()->json([
+                        'message' => 'Vendor account is not yet approved.',
+                        'reason' => 'vendor_pending',
+                        'vendor_approval_status' => $user->vendor->approval_status,
+                    ], 403);
+                }
+            }
+        }
+
 
         return response()->json([
             'user' => $user,
             'token' => $token,
-            'verification' => [
+            'auth' => [
+                'role' => $user->role,
                 'is_verified' => (bool) $user->is_verified,
-                'method' => 'otp',
+                // ✅ return vendors.approval_status here
+                'vendor_approval_status' => $user->vendor?->approval_status,
             ],
         ]);
     }
+
+
+
 
     public function me(Request $request)
     {
         $user = $request->user();
 
+        // Optional: handle unauthenticated
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $vendor = null;
+
+        if (!empty($user->vendor_id)) {
+            $vendor = Vendor::select('id', 'approval_status')
+                ->where('id', $user->vendor_id)   // users.vendor_id = vendors.id
+                ->first();
+        }
+
         return response()->json([
-            'user' => $user,
-            'verification' => [
-                'is_verified' => (bool) $user->is_verified,
-                'method' => 'otp',
+            'data' => [
+                // ✅ your Flutter expects data['user'] as Map
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+
+                    // ✅ your Flutter reads user['user_type'] or user['type']
+                    'user_type' => $user->role ?? null, // or whatever field you use
+                    'type' => $user->role ?? null,      // keep both if you want
+                ],
+
+                // ✅ your Flutter expects data['vendor'] as Map (or null)
+                'vendor' => $vendor ? [
+                    'id' => $vendor->id, // vendorId = vendor['id']?.toString()
+                    'approval_status' => $vendor->approval_status, // approval = vendor['approval_status']
+                ] : null,
+
+                // (optional) keep your verification block if you still need it
+                'verification' => [
+                    'is_verified' => (bool) ($user->is_verified ?? false),
+                    'method' => 'otp',
+                ],
             ],
-        ]);
+        ], 200);
     }
 
     public function logout(Request $request)
@@ -260,6 +344,7 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Verified successfully.',
             'verification' => ['is_verified' => true],
+            'user_type' => $user->role,
         ]);
     }
 

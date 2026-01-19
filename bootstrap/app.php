@@ -19,13 +19,14 @@ return Application::configure(basePath: dirname(__DIR__))
         }
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+
+        // ✅ Force JSON for all API routes
+        $middleware->appendToGroup('api', \App\Http\Middleware\ForceJsonResponse::class);
+
+        // ✅ Your existing API logger
+        $middleware->appendToGroup('api', \App\Http\Middleware\ApiLogger::class);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
     })
-    ->withMiddleware(function (Middleware $middleware) {
-        $middleware->appendToGroup('api', \App\Http\Middleware\ApiLogger::class);
-    })
-
     ->create();

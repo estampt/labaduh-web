@@ -3,7 +3,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 class Vendor extends Model
 {
-    protected $fillable = ['name','email','phone','approval_status','approved_at','approved_by','is_active','customers_serviced_count','kilograms_processed_total','rating_avg','rating_count','documents_submitted_at','documents_verified_at'];
+    protected $fillable = ['id','name','email','phone','approval_status','approved_at','approved_by','is_active','customers_serviced_count','kilograms_processed_total','rating_avg','rating_count','documents_submitted_at','documents_verified_at'];
     protected $casts = ['approved_at'=>'datetime','is_active'=>'boolean'];
     public function shops() { return $this->hasMany(VendorShop::class); }
     public function documents() { return $this->hasMany(VendorDocument::class); }
