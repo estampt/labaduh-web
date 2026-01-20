@@ -54,7 +54,7 @@ class AdminServiceController extends Controller
             'name' => [$creating ? 'required' : 'sometimes', 'string', 'max:255'],
             'base_unit' => [$creating ? 'required' : 'sometimes', Rule::in(['kg','item','order'])],
             'is_active' => ['sometimes','boolean'],
-
+            'icon' => ['nullable','string','max:50'],
             'default_pricing_model' => ['sometimes', Rule::in(['per_kg_min','per_piece'])],
             'default_min_kg' => ['nullable','numeric','min:0'],
             'default_rate_per_kg' => ['nullable','numeric','min:0'],

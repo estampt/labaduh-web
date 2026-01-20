@@ -10,6 +10,7 @@ class Service extends Model
         'name',
         'base_unit', // kg | item | order
         'is_active',
+        'icon',
 
         // System default pricing
         'default_pricing_model', // per_kg_min | per_piece

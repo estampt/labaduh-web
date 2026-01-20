@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api\V1\Admin;
+namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Vendor;
@@ -9,22 +9,27 @@ use Illuminate\Support\Carbon;
 
 class AdminVendorApprovalController extends Controller
 {
-    // GET /admin/vendors/pending
     public function pending(Request $request)
     {
         $q = Vendor::query()
             ->where('approval_status', 'pending')
             ->latest();
 
+        if ($search = trim((string) $request->query('search', ''))) {
+            $q->where(function ($qq) use ($search) {
+                $qq->where('name', 'like', "%{$search}%")
+                   ->orWhere('email', 'like', "%{$search}%")
+                   ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
         return response()->json([
             'data' => $q->paginate($request->integer('per_page', 20)),
         ]);
     }
 
-    // PATCH /admin/vendors/{vendor}/approve
     public function approve(Request $request, Vendor $vendor)
     {
-        // Require all docs approved (only if relation exists on Vendor)
         if (method_exists($vendor, 'documents')) {
             $blocked = $vendor->documents()
                 ->whereIn('status', ['pending', 'rejected'])
@@ -40,9 +45,13 @@ class AdminVendorApprovalController extends Controller
         $vendor->approval_status = 'approved';
         $vendor->is_active = true;
 
-        // If you have these columns; if not, remove them:
-        if (isset($vendor->approved_at)) $vendor->approved_at = Carbon::now();
-        if (isset($vendor->approved_by)) $vendor->approved_by = $request->user()?->id;
+        $vendor->approved_at = Carbon::now();
+        $vendor->approved_by = $request->user()?->id;
+
+        // clear rejection info
+        $vendor->rejected_at = null;
+        $vendor->rejected_by = null;
+        $vendor->rejection_reason = null;
 
         $vendor->save();
 
@@ -52,7 +61,6 @@ class AdminVendorApprovalController extends Controller
         ]);
     }
 
-    // PATCH /admin/vendors/{vendor}/reject
     public function reject(Request $request, Vendor $vendor)
     {
         $data = $request->validate([
@@ -62,10 +70,13 @@ class AdminVendorApprovalController extends Controller
         $vendor->approval_status = 'rejected';
         $vendor->is_active = false;
 
-        // If you have these columns; if not, remove them:
-        if (isset($vendor->rejected_at)) $vendor->rejected_at = Carbon::now();
-        if (isset($vendor->rejected_by)) $vendor->rejected_by = $request->user()?->id;
-        if (isset($vendor->rejection_reason)) $vendor->rejection_reason = $data['reason'];
+        $vendor->rejected_at = Carbon::now();
+        $vendor->rejected_by = $request->user()?->id;
+        $vendor->rejection_reason = $data['reason'];
+
+        // optional: clear approval info
+        $vendor->approved_at = null;
+        $vendor->approved_by = null;
 
         $vendor->save();
 
