@@ -9,6 +9,61 @@ use Illuminate\Support\Carbon;
 
 class AdminVendorApprovalController extends Controller
 {
+    // GET /admin/vendors
+
+
+   public function index(Request $request)
+    {
+        $q = Vendor::query()
+            ->with(['user:id,vendor_id,name,email,contact_number,address_line1,address_line2'])
+            ->latest();
+
+        if ($status = $request->query('status')) {
+            $q->where('approval_status', $status);
+        }
+
+        if (($active = $request->query('is_active')) !== null) {
+            $q->where('is_active', filter_var($active, FILTER_VALIDATE_BOOLEAN));
+        }
+
+        if ($search = trim((string) $request->query('search', ''))) {
+            $q->where(function ($qq) use ($search) {
+                // vendor fields
+                $qq->where('name', 'like', "%{$search}%")
+                   ->orWhere('email', 'like', "%{$search}%")
+                   ->orWhere('phone', 'like', "%{$search}%")
+
+                   // user fields (via users.vendor_id)
+                   ->orWhereHas('user', function ($uq) use ($search) {
+                       $uq->where('name', 'like', "%{$search}%")
+                          ->orWhere('email', 'like', "%{$search}%")
+                          ->orWhere('contact_number', 'like', "%{$search}%")
+                          ->orWhere('address_line1', 'like', "%{$search}%")
+                          ->orWhere('address_line2', 'like', "%{$search}%");
+                   });
+            });
+        }
+
+        $paginated = $q->paginate($request->integer('per_page', 20));
+
+        // Flatten for Flutter, and make "name" = users.name
+        $paginated->getCollection()->transform(function ($vendor) {
+            $vendor->vendor_name = $vendor->name;              // vendors.name saved
+            $vendor->name = $vendor->user->name ?? null;       // ✅ users.name as "name"
+
+            $vendor->email = $vendor->user->email ?? null;
+            $vendor->contact_number = $vendor->user->contact_number ?? null;
+            $vendor->address_line1 = $vendor->user->address_line1 ?? null;
+            $vendor->address_line2 = $vendor->user->address_line2 ?? null;
+
+            return $vendor;
+        });
+
+        return response()->json(['data' => $paginated]);
+    }
+
+
+
     public function pending(Request $request)
     {
         $q = Vendor::query()
