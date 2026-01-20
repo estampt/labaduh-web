@@ -1,13 +1,19 @@
 <?php
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+
 return new class extends Migration {
-    public function up(): void {
+    public function up(): void
+    {
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
+
             $table->foreignId('vendor_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('shop_id')->constrained('vendor_shops')->cascadeOnDelete();
+
+            // ❌ REMOVE shop_id here. It will be added later by 2026_01_12_000150_add_shop_id_to_orders_table.php
+
             $table->unsignedBigInteger('customer_id')->nullable()->index();
 
             $table->decimal('pickup_lat', 10, 7)->nullable();
@@ -19,7 +25,10 @@ return new class extends Migration {
             $table->time('pickup_time_start')->nullable();
             $table->time('pickup_time_end')->nullable();
 
-            $table->enum('status', ['pending','accepted','pickup_scheduled','picked_up','washing','ready_for_delivery','delivered','completed','cancelled'])->default('pending');
+            $table->enum('status', [
+                'pending','accepted','pickup_scheduled','picked_up','washing',
+                'ready_for_delivery','delivered','completed','cancelled'
+            ])->default('pending');
 
             $table->decimal('distance_km', 10, 2)->default(0);
             $table->decimal('subtotal', 10, 2)->default(0);
@@ -29,8 +38,14 @@ return new class extends Migration {
             $table->text('notes')->nullable();
 
             $table->timestamps();
-            $table->index(['vendor_id','shop_id','status']);
+
+            // shop_id not here yet, but keep vendor/status index
+            $table->index(['vendor_id','status']);
         });
     }
-    public function down(): void { Schema::dropIfExists('orders'); }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('orders');
+    }
 };
