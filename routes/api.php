@@ -42,6 +42,8 @@ Route::prefix('v1')->group(function () {
         // Vendor pricing
         Route::get('/vendor/pricing', [VendorPricingController::class, 'index']);
         Route::post('/vendor/pricing/service-prices', [VendorPricingController::class, 'upsertServicePrices']);
+        Route::delete('/vendor/pricing/shop-price/{id}', [VendorPricingController::class, 'deleteShopPrice']);
+
         Route::post('/vendor/pricing/delivery-price', [VendorPricingController::class, 'upsertDeliveryPrice']);
 
         // Payments
@@ -105,9 +107,14 @@ Route::prefix('v1')->group(function () {
             ->middleware('vendor_owns_vendor');
 
         Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+
+        Route::get('/vendor/pricing', [VendorPricingController::class, 'index']);
+        Route::post('/vendor/pricing/service-prices', [VendorPricingController::class, 'upsertServicePrices']);
+        Route::delete('/vendor/pricing/shop-price/{id}', [VendorPricingController::class, 'deleteShopPrice']);
+
     });
 
-    Route::middleware(['auth:sanctum','admin_only'])->prefix('admin')->group(function () {
+    Route::middleware(['auth:sanctum','admin'])->prefix('admin')->group(function () {
         Route::get('/vendors/pending', [AdminVendorApprovalController::class, 'pending']);
         Route::patch('/vendors/{vendor}/approve', [AdminVendorApprovalController::class, 'approve']);
         Route::patch('/vendors/{vendor}/reject', [AdminVendorApprovalController::class, 'reject']);
@@ -116,5 +123,11 @@ Route::prefix('v1')->group(function () {
         Route::get('/vendors/{vendor}/documents', [AdminVendorDocumentController::class, 'listForVendor']);
         Route::patch('/vendor-documents/{document}/approve', [AdminVendorDocumentController::class, 'approve']);
         Route::patch('/vendor-documents/{document}/reject', [AdminVendorDocumentController::class, 'reject']);
+
+        Route::get('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'index']);
+        Route::post('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'store']);
+        Route::put('/services/{service}', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'update']);
+        Route::delete('/services/{service}', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'destroy']);
+        Route::patch('/services/{service}/active', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'setActive']);
     });
 });

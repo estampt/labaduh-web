@@ -1,37 +1,77 @@
 <?php
-namespace App\Http\Controllers\Api\V1;
+
+namespace App\Http\Controllers\Api\V1\Admin;
+
 use App\Http\Controllers\Controller;
 use App\Models\Vendor;
-use App\Models\VendorDocument;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+
 class AdminVendorApprovalController extends Controller
 {
-    private const REQUIRED_TYPES = ['business_registration','government_id'];
+    // GET /admin/vendors/pending
+    public function pending(Request $request)
+    {
+        $q = Vendor::query()
+            ->where('approval_status', 'pending')
+            ->latest();
 
-    public function pending(){ return Vendor::where('approval_status','pending')->orderByDesc('id')->with('shops')->get(); }
-    public function approve(Request $r, Vendor $vendor){
-        // Require docs before approval
-        $approvedRequired = VendorDocument::where('vendor_id', $vendor->id)
-            ->whereIn('document_type', self::REQUIRED_TYPES)
-            ->where('status', 'approved')
-            ->count();
+        return response()->json([
+            'data' => $q->paginate($request->integer('per_page', 20)),
+        ]);
+    }
 
-        if ($approvedRequired !== count(self::REQUIRED_TYPES)) {
-            return response()->json([
-                'message' => 'Vendor has missing or unverified documents',
-                'required' => self::REQUIRED_TYPES,
-                'approved_required_count' => $approvedRequired,
-            ], 422);
+    // PATCH /admin/vendors/{vendor}/approve
+    public function approve(Request $request, Vendor $vendor)
+    {
+        // Require all docs approved (only if relation exists on Vendor)
+        if (method_exists($vendor, 'documents')) {
+            $blocked = $vendor->documents()
+                ->whereIn('status', ['pending', 'rejected'])
+                ->exists();
+
+            if ($blocked) {
+                return response()->json([
+                    'message' => 'Cannot approve vendor: some documents are still pending or rejected.',
+                ], 422);
+            }
         }
 
-        $vendor->update([
-            'approval_status' => 'approved',
-            'approved_at' => now(),
-            'approved_by' => $r->user()->id,
-            'is_active' => true,
+        $vendor->approval_status = 'approved';
+        $vendor->is_active = true;
+
+        // If you have these columns; if not, remove them:
+        if (isset($vendor->approved_at)) $vendor->approved_at = Carbon::now();
+        if (isset($vendor->approved_by)) $vendor->approved_by = $request->user()?->id;
+
+        $vendor->save();
+
+        return response()->json([
+            'message' => 'Vendor approved.',
+            'data' => $vendor,
+        ]);
+    }
+
+    // PATCH /admin/vendors/{vendor}/reject
+    public function reject(Request $request, Vendor $vendor)
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
         ]);
 
-        return $vendor->fresh()->load('shops');
+        $vendor->approval_status = 'rejected';
+        $vendor->is_active = false;
+
+        // If you have these columns; if not, remove them:
+        if (isset($vendor->rejected_at)) $vendor->rejected_at = Carbon::now();
+        if (isset($vendor->rejected_by)) $vendor->rejected_by = $request->user()?->id;
+        if (isset($vendor->rejection_reason)) $vendor->rejection_reason = $data['reason'];
+
+        $vendor->save();
+
+        return response()->json([
+            'message' => 'Vendor rejected.',
+            'data' => $vendor,
+        ]);
     }
-    public function reject(Request $r, Vendor $vendor){ $vendor->update(['approval_status'=>'rejected','approved_at'=>now(),'approved_by'=>$r->user()->id,'is_active'=>false]); return $vendor->fresh()->load('shops'); }
 }

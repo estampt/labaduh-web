@@ -25,6 +25,12 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // ✅ Your existing API logger
         $middleware->appendToGroup('api', \App\Http\Middleware\ApiLogger::class);
+
+        // ✅ Register route middleware aliases (Laravel 11)
+        $middleware->alias([
+            'admin_only' => \App\Http\Middleware\AdminOnly::class,
+            'admin'      => \App\Http\Middleware\AdminOnly::class, // ✅ add this
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

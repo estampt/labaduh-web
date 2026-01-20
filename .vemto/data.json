@@ -5,7 +5,7 @@
                 "uuid": "cde7fd54-8cb9-4eaa-aa5f-ea3bb5b9534e",
                 "id": 1,
                 "createdAt": "2026-01-10 19:15:41",
-                "updatedAt": "2026-01-20 17:42:22",
+                "updatedAt": "2026-01-20 18:15:25",
                 "settings": {
                     "cssFramework": "tailwind",
                     "uiStarterKit": "other",
@@ -25,7 +25,7 @@
                     "schemaReaderDbDatabase": "vemto_schema_reader",
                     "laravelVersion": "12.0"
                 },
-                "canShowSchemaSourceChangesAlert": true,
+                "canShowSchemaSourceChangesAlert": false,
                 "codeGenerationSettings": {
                     "models": true,
                     "factories": true,
@@ -11998,13 +11998,13 @@
         "schema_sections": {
             "item_1": {
                 "name": "App",
-                "scrollX": 24264,
-                "scrollY": 24483,
+                "scrollX": 24259,
+                "scrollY": 24488,
                 "zoom": 40,
                 "projectId": 1,
                 "id": 1,
                 "createdAt": "2026-01-10 19:15:49",
-                "updatedAt": "2026-01-20 17:22:23"
+                "updatedAt": "2026-01-20 18:19:53"
             },
             "__tableData": {
                 "count": 2,
