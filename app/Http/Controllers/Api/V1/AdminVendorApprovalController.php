@@ -63,6 +63,36 @@ class AdminVendorApprovalController extends Controller
     }
 
 
+    // GET /api/v1/admin/vendors/{vendor}
+    public function show(Vendor $vendor)
+    {
+        $vendor->load([
+            // user info (your users.vendor_id = vendors.id)
+            'user:id,vendor_id,name,email,contact_number,address_line1,address_line2',
+
+            // vendor documents
+            'documents' => function ($q) {
+                $q->select([
+                    'id',
+                    'vendor_id',
+                    'document_type',
+                    'file_path',
+                    'original_filename',
+                    'mime_type',
+                    'review_notes',
+                    'rejection_reason',
+                    'reviewed_by',
+                    'reviewed_at',
+                    'status',
+                    'created_at',
+                ])->latest();
+            },
+        ]);
+
+        return response()->json([
+            'data' => $vendor,
+        ]);
+    }
 
     public function pending(Request $request)
     {

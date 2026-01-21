@@ -117,6 +117,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum','admin_only'])->prefix('admin')->group(function () {
 
         Route::get('/vendors', [AdminVendorApprovalController::class, 'index']);
+        Route::get('/vendors/{vendor}', [AdminVendorApprovalController::class, 'show']);
 
         Route::get('/vendors/pending', [AdminVendorApprovalController::class, 'pending']);
         Route::patch('/vendors/{vendor}/approve', [AdminVendorApprovalController::class, 'approve']);

@@ -14,9 +14,9 @@ class Vendor extends Model
     public function users() { return $this->hasMany(User::class); }
     public function isApproved(): bool { return $this->approval_status === 'approved' && $this->is_active === true; }
     public function user()
-{
-    // users.vendor_id -> vendors.id
-    return $this->hasOne(\App\Models\User::class, 'vendor_id', 'id');
-}
+    {
+        // users.vendor_id -> vendors.id
+        return $this->hasOne(\App\Models\User::class, 'vendor_id', 'id');
+    }
 
 }
