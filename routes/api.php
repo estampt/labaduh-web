@@ -20,6 +20,8 @@ use App\Http\Controllers\Api\V1\PaymentWebhookController;
 use App\Http\Controllers\Api\V1\VendorPricingController;
 use App\Http\Controllers\Api\V1\CustomerBroadcastController;
 use App\Http\Controllers\Api\V1\VendorJobController;
+use App\Http\Controllers\Api\V1\AdminAddonController;
+
 
 Route::prefix('v1')->group(function () {
     // Payment webhooks (no auth)
@@ -122,6 +124,13 @@ Route::prefix('v1')->group(function () {
         Route::get('/vendors/pending', [AdminVendorApprovalController::class, 'pending']);
         Route::patch('/vendors/{vendor}/approve', [AdminVendorApprovalController::class, 'approve']);
         Route::patch('/vendors/{vendor}/reject', [AdminVendorApprovalController::class, 'reject']);
+
+        // Add-on catalog
+        Route::get('/addons', [AdminAddonController::class, 'index']);
+        Route::post('/addons', [AdminAddonController::class, 'store']);
+        Route::patch('/addons/{addon}', [AdminAddonController::class, 'update']);
+        Route::delete('/addons/{addon}', [AdminAddonController::class, 'destroy']);
+
 
         // Vendor documents review
         Route::get('/vendors/{vendor}/documents', [AdminVendorDocumentController::class, 'listForVendor']);
