@@ -170,11 +170,12 @@ class AuthController extends Controller
         ], 201);
     }
 
-    public function login(Request $request)
+
+     public function login(Request $request)
     {
         $data = $request->validate([
-            'email' => ['required','email'],
-            'password' => ['required','string'],
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
         ]);
 
         $user = User::where('email', $data['email'])->first();
@@ -184,13 +185,6 @@ class AuthController extends Controller
                 'email' => ['Invalid credentials.'],
             ]);
         }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Issue token if login successful
-        |--------------------------------------------------------------------------
-        */
-        $token = $user->createToken('api')->plainTextToken;
 
         /*
         |--------------------------------------------------------------------------
@@ -205,7 +199,7 @@ class AuthController extends Controller
             if (!$user->is_verified) {
                 return response()->json([
                     'message' => 'Account not verified.',
-                    'reason' => 'otp_required',
+                    'reason'  => 'otp_required',
                 ], 403);
             }
 
@@ -223,13 +217,24 @@ class AuthController extends Controller
                 if ($user->vendor->approval_status !== 'approved') {
                     return response()->json([
                         'message' => 'Vendor account is not yet approved.',
-                        'reason' => 'vendor_pending',
+                        'reason'  => 'vendor_pending',
                         'vendor_approval_status' => $user->vendor->approval_status,
                     ], 403);
                 }
             }
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Issue token if login successful
+        |--------------------------------------------------------------------------
+        */
+        $token = $user->createToken('api')->plainTextToken;
+
+        // ✅ vendor_id only if vendor
+        $vendorId = ($user->role === 'vendor')
+            ? ($user->vendor->id ?? null)
+            : null;
 
         return response()->json([
             'user' => $user,
@@ -237,11 +242,12 @@ class AuthController extends Controller
             'auth' => [
                 'role' => $user->role,
                 'is_verified' => (bool) $user->is_verified,
-                // ✅ return vendors.approval_status here
+                'vendor_id' => $vendorId,
                 'vendor_approval_status' => $user->vendor?->approval_status,
             ],
         ]);
     }
+
 
 
 

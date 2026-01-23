@@ -9,13 +9,13 @@ class VendorShop extends Model
     protected $table = 'vendor_shops';
 
     protected $fillable = [
-        'vendor_id',
-        'name','phone','address',
-        'latitude','longitude','service_radius_km',
-        'country_id','state_province_id','city_id',
-        'address_line1',
-        'address_line2',
-        'is_active'
+      'vendor_id',
+      'name','phone',
+      'address_line1','address_line2','postal_code',
+      'country_id','state_province_id','city_id',
+      'latitude','longitude',
+      'default_max_orders_per_day','default_max_kg_per_day',
+      'is_active',
     ];
 
     protected $casts = [

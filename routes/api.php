@@ -92,6 +92,10 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware(['auth:sanctum','vendor_or_admin','approved_vendor'])->group(function () {
 
+        Route::get('/vendors/{vendor}/shops', [VendorShopController::class, 'index'])
+        ->middleware('vendor_owns_vendor');
+
+
         Route::put('/vendors/{vendor}', [VendorController::class, 'update'])
             ->middleware('vendor_owns_vendor');
 

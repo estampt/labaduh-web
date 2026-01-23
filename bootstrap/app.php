@@ -30,6 +30,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'admin_only' => \App\Http\Middleware\AdminOnly::class,
             'admin'      => \App\Http\Middleware\AdminOnly::class, // ✅ add this
+            'vendor_or_admin' => \App\Http\Middleware\VendorOrAdmin::class,
+            'approved_vendor' => \App\Http\Middleware\ApprovedVendor::class,
+            'vendor_owns_vendor' => \App\Http\Middleware\VendorOwnsVendor::class,
+            'vendor_owns_shop' => \App\Http\Middleware\VendorOwnsShop::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
