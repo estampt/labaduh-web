@@ -103,6 +103,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('vendor_owns_vendor');
         Route::put('/vendors/{vendor}/shops/{shop}', [VendorShopController::class, 'update'])
             ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
+
+        Route::post('/vendors/{vendor}/shops/{shop}/photo', [VendorShopController::class, 'uploadPhoto'])
+          ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
+
         Route::patch('/vendors/{vendor}/shops/{shop}/toggle', [VendorShopController::class, 'toggle'])
             ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
 

@@ -10,7 +10,7 @@ class VendorShop extends Model
 
     protected $fillable = [
       'vendor_id',
-      'name','phone',
+      'name','phone','profile_photo_url',
       'address_line1','address_line2','postal_code',
       'country_id','state_province_id','city_id',
       'latitude','longitude',

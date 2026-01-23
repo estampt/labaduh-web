@@ -32,31 +32,38 @@ class VendorShopController extends Controller
         ]);
     }
 
-    public function store(Request $r, Vendor $vendor) {
-        $data = $r->validate(['name'=>['required','string','max:255'],'phone'=>['nullable','string','max:50'],'address'=>['nullable','string','max:255'],'latitude'=>['nullable','numeric'],'longitude'=>['nullable','numeric'],'service_radius_km'=>['nullable','numeric','min:0'],'country_id'=>['nullable','integer'],'state_province_id'=>['nullable','integer'],'city_id'=>['nullable','integer'],'is_active'=>['sometimes','boolean']]);
-        $data['vendor_id']=$vendor->id; return VendorShop::create($data);
+    public function store(Request $r, Vendor $vendor)
+    {
+        $data = $r->validate([
+            'name' => ['required','string','max:255'],
+            'phone' => ['nullable','string','max:50'],
+
+            // ✅ updated address fields
+            'address_line1' => ['nullable','string','max:1000'],
+            'address_line2' => ['nullable','string','max:255'],
+            'postal_code'   => ['nullable','string','max:50'],
+
+            'latitude' => ['nullable','numeric'],
+            'longitude' => ['nullable','numeric'],
+
+            'country_id' => ['nullable','integer'],
+            'state_province_id' => ['nullable','integer'],
+            'city_id' => ['nullable','integer'],
+
+            'default_max_orders_per_day' => ['nullable','integer','min:0'],
+            'default_max_kg_per_day' => ['nullable','numeric','min:0'],
+
+            'is_active' => ['sometimes','boolean'],
+        ]);
+
+        $data['vendor_id'] = $vendor->id;
+
+        $shop = VendorShop::create($data);
+
+        return response()->json(['data' => $shop], 201);
     }
-    public function update1(Request $r, Vendor $vendor, VendorShop $shop) {
-    \Log::info('UPDATE RAW', $r->all());
 
-    $data = $r->validate([
-        'name'=>['sometimes','string','max:255'],
-        'phone'=>['nullable','string','max:50'],
-        'address'=>['nullable','string','max:255'],
-        'latitude'=>['nullable','numeric'],
-        'longitude'=>['nullable','numeric'],
-        'service_radius_km'=>['nullable','numeric','min:0'],
-        'country_id'=>['nullable','integer'],
-        'state_province_id'=>['nullable','integer'],
-        'city_id'=>['nullable','integer'],
-        'is_active'=>['sometimes','boolean'],
-    ]);
 
-    \Log::info('UPDATE VALIDATED', $data);
-
-    $shop->update($data);
-    return $shop->fresh();
-}
     public function update(Request $r, Vendor $vendor, VendorShop $shop)
     {
          \Log::info('UPDATE RAW', $r->all());
@@ -88,6 +95,19 @@ class VendorShopController extends Controller
     }
 
 
+    public function uploadPhoto(Request $r, Vendor $vendor, VendorShop $shop)
+    {
+        $r->validate([
+            'photo' => ['required','image','max:5120'], // 5MB
+        ]);
+
+        $path = $r->file('photo')->store('vendor-shops', 'public');
+        $url = asset('storage/'.$path);
+
+        $shop->update(['profile_photo_url' => $url]);
+
+        return response()->json(['data' => $shop->fresh()]);
+    }
 
     public function toggle(Vendor $vendor, VendorShop $shop) { $shop->update(['is_active'=>!$shop->is_active]); return $shop->fresh(); }
 }
