@@ -22,7 +22,7 @@ use App\Http\Controllers\Api\V1\CustomerBroadcastController;
 use App\Http\Controllers\Api\V1\VendorJobController;
 use App\Http\Controllers\Api\V1\AdminAddonController;
 use App\Http\Controllers\Api\V1\AdminServiceOptionController;
-
+use App\Http\Controllers\Api\V1\VendorShopServicePriceController;
 
 
 Route::prefix('v1')->group(function () {
@@ -124,6 +124,32 @@ Route::prefix('v1')->group(function () {
         Route::post('/vendor/pricing/service-prices', [VendorPricingController::class, 'upsertServicePrices']);
         Route::delete('/vendor/pricing/shop-price/{id}', [VendorPricingController::class, 'deleteShopPrice']);
 
+        //=================================================//
+        //Service List
+        Route::get('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'index']);
+        //=================================================//
+
+        //=================================================//
+        //Vendor shop service CRUD
+
+        Route::get('/vendors/{vendor}/shops/{shop}/service-prices', [VendorShopServicePriceController::class, 'index'])
+        ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
+
+        Route::post('/vendors/{vendor}/shops/{shop}/service-prices', [VendorShopServicePriceController::class, 'store'])
+        ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
+
+        Route::put('/vendors/{vendor}/shops/{shop}/service-prices/{price}', [VendorShopServicePriceController::class, 'update'])
+        ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
+
+        Route::delete('/vendors/{vendor}/shops/{shop}/service-prices/{price}', [VendorShopServicePriceController::class, 'destroy'])
+        ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
+
+        Route::patch('/vendors/{vendor}/shops/{shop}/service-prices/{price}/toggle', [VendorShopServicePriceController::class, 'toggle'])
+        ->middleware(['vendor_owns_vendor','vendor_owns_shop']);
+        //=================================================//
+        //End of Vendor shop service CRUD
+
+
     });
 
     Route::middleware(['auth:sanctum','admin_only'])->prefix('admin')->group(function () {
@@ -153,6 +179,8 @@ Route::prefix('v1')->group(function () {
         Route::patch('/vendor-documents/{document}/approve', [AdminVendorDocumentController::class, 'approve']);
         Route::patch('/vendor-documents/{document}/reject', [AdminVendorDocumentController::class, 'reject']);
 
+        //=================================================//
+        //Service List
         Route::get('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'index']);
         Route::post('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'store']);
         Route::put('/services/{service}', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'update']);
