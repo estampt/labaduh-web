@@ -21,6 +21,8 @@ use App\Http\Controllers\Api\V1\VendorPricingController;
 use App\Http\Controllers\Api\V1\CustomerBroadcastController;
 use App\Http\Controllers\Api\V1\VendorJobController;
 use App\Http\Controllers\Api\V1\AdminAddonController;
+use App\Http\Controllers\Api\V1\AdminServiceOptionController;
+
 
 
 Route::prefix('v1')->group(function () {
@@ -139,6 +141,12 @@ Route::prefix('v1')->group(function () {
         Route::patch('/addons/{addon}', [AdminAddonController::class, 'update']);
         Route::delete('/addons/{addon}', [AdminAddonController::class, 'destroy']);
 
+        Route::get('service-options', [AdminServiceOptionController::class, 'index']);
+        Route::post('service-options', [AdminServiceOptionController::class, 'store']);
+        Route::get('service-options/{serviceOption}', [AdminServiceOptionController::class, 'show']);
+        Route::put('service-options/{serviceOption}', [AdminServiceOptionController::class, 'update']);
+        Route::delete('service-options/{serviceOption}', [AdminServiceOptionController::class, 'destroy']);
+        Route::patch('service-options/{serviceOption}/toggle', [AdminServiceOptionController::class, 'toggleActive']);
 
         // Vendor documents review
         Route::get('/vendors/{vendor}/documents', [AdminVendorDocumentController::class, 'listForVendor']);
