@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class VendorServicePrice extends Model
 {
     protected $fillable = [
-        'vendor_id','shop_id','service_id','category_code','pricing_model',
+        'vendor_id','shop_id','service_option_id','vendor_service_price_id','category_code','pricing_model',
         'min_kg','rate_per_kg','block_kg','block_price','flat_price','is_active'
     ];
 
