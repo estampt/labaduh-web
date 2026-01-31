@@ -80,10 +80,14 @@ class VendorServiceOptionPriceController extends Controller
 
     public function destroy(Vendor $vendor, VendorShop $shop, VendorServiceOptionPrice $optionPrice)
     {
+
         abort_unless((int) $optionPrice->vendor_id === (int) $vendor->id, 404);
         abort_unless((int) $optionPrice->shop_id === (int) $shop->id, 404);
 
+
         $optionPrice->delete();
+
+        Log::info('DELETE SQL', DB::getQueryLog());
 
         return response()->json(['ok' => true]);
     }

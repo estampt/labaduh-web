@@ -22,6 +22,10 @@ use App\Http\Controllers\Api\V1\VendorServiceController;
 use App\Http\Controllers\Api\V1\VendorShopController;
 use App\Http\Controllers\Api\V1\VendorShopServicePriceController;
 use App\Http\Controllers\Api\V1\VendorServiceOptionPriceController;
+use App\Http\Controllers\Api\V1\ShopServiceController;
+use App\Http\Controllers\Api\V1\ShopServiceOptionController;
+
+
 
 use App\Http\Controllers\Api\V1\AdminAddonController;
 use App\Http\Controllers\Api\V1\AdminPushTestController;
@@ -172,6 +176,23 @@ Route::prefix('v1')->group(function () {
             Route::post('/option-prices', [VendorServiceOptionPriceController::class, 'store']);
             Route::put('/option-prices/{optionPrice}', [VendorServiceOptionPriceController::class, 'update']);
             Route::delete('/option-prices/{optionPrice}', [VendorServiceOptionPriceController::class, 'destroy']);
+
+
+            //Added by Rehnee on 31-Jan-2026
+            //New Services Model
+            Route::get   ('services',               [ShopServiceController::class, 'index']);
+            Route::post  ('services',               [ShopServiceController::class, 'store']);
+            Route::get   ('services/{shopService}', [ShopServiceController::class, 'show']);
+            Route::put   ('services/{shopService}', [ShopServiceController::class, 'update']);
+            Route::delete('services/{shopService}', [ShopServiceController::class, 'destroy']);
+
+            //Added by Rehnee on 31-Jan-2026
+            //New Service options
+            Route::get   ('services/{shopService}/options',                  [ShopServiceOptionController::class, 'index']);
+            Route::post  ('services/{shopService}/options',                  [ShopServiceOptionController::class, 'store']);
+            Route::get   ('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'show']);
+            Route::put   ('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'update']);
+            Route::delete('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'destroy']);
         });
 
         // Master list for picker (if you don’t have yet)

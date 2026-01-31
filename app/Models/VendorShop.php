@@ -55,5 +55,11 @@ class VendorShop extends Model
             'region_id'  // local key on countries...
         );
     }
+
+    public function shopServices()
+    {
+        return $this->hasMany(\App\Models\ShopService::class, 'shop_id');
+    }
+
 }
 
