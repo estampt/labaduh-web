@@ -20,8 +20,6 @@ use App\Http\Controllers\Api\V1\VendorPricingController;
 use App\Http\Controllers\Api\V1\VendorReviewController;
 use App\Http\Controllers\Api\V1\VendorServiceController;
 use App\Http\Controllers\Api\V1\VendorShopController;
-use App\Http\Controllers\Api\V1\VendorShopServicePriceController;
-use App\Http\Controllers\Api\V1\VendorServiceOptionPriceController;
 use App\Http\Controllers\Api\V1\ShopServiceController;
 use App\Http\Controllers\Api\V1\ShopServiceOptionController;
 
