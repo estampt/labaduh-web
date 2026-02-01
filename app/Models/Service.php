@@ -8,6 +8,7 @@ class Service extends Model
 {
     protected $fillable = [
         'name',
+        'description',
         'base_unit', // kg | item | order
         'is_active',
         'icon',

@@ -52,6 +52,8 @@ class AdminServiceController extends Controller
     {
         return $request->validate([
             'name' => [$creating ? 'required' : 'sometimes', 'string', 'max:255'],
+
+            'description' => [$creating ? 'required' : 'sometimes', 'string', 'max:512'],
             'base_unit' => [$creating ? 'required' : 'sometimes', Rule::in(['kg','item','order'])],
             'is_active' => ['sometimes','boolean'],
             'icon' => ['nullable','string','max:50'],
