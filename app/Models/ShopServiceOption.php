@@ -29,4 +29,6 @@ class ShopServiceOption extends Model
     {
         return $this->belongsTo(ServiceOption::class, 'service_option_id');
     }
+
+
 }

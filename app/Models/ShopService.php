@@ -43,4 +43,5 @@ class ShopService extends Model
         return $this->hasMany(\App\Models\ShopServiceOption::class, 'shop_service_id');
     }
 
+
 }

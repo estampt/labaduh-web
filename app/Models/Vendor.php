@@ -3,6 +3,23 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 class Vendor extends Model
 {
+
+    const STATUS_PENDING     = 'pending';
+    const STATUS_APPROVED    = 'approved';
+    const STATUS_REJECTED    = 'rejected';
+    const STATUS_SUSPENDED   = 'suspended';
+    const STATUS_DEACTIVATED = 'deactivated';
+
+    public function scopeApproved($q)
+    {
+        return $q->where('status', self::STATUS_APPROVED);
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
+    }
+
     protected $fillable = ['id','name','email','phone','approval_status','approved_at','approved_by','is_active','customers_serviced_count','kilograms_processed_total','rating_avg','rating_count','documents_submitted_at','documents_verified_at'];
     protected $casts = ['approved_at'=>'datetime','is_active'=>'boolean'];
     public function shops() { return $this->hasMany(VendorShop::class); }

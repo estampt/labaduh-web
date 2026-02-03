@@ -23,6 +23,11 @@ use App\Http\Controllers\Api\V1\VendorShopController;
 use App\Http\Controllers\Api\V1\ShopServiceController;
 use App\Http\Controllers\Api\V1\ShopServiceOptionController;
 
+use App\Http\Controllers\Api\V1\CustomerDiscoveryServiceController;
+use App\Http\Controllers\Api\V1\CustomerQuoteController;
+use App\Http\Controllers\Api\V1\CustomerOrderController;
+use App\Http\Controllers\Api\V1\CustomerOrderTimelineController;
+use App\Http\Controllers\Api\V1\VendorOrderPricingController;
 
 
 use App\Http\Controllers\Api\V1\AdminAddonController;
@@ -121,6 +126,43 @@ Route::prefix('v1')->group(function () {
     });
 
 
+    /************
+     * Customer APIS
+    */
+    Route::middleware(['auth:sanctum', 'customer'])->group(function () {
+
+        Route::prefix('customer')->group(function () {
+
+            // Customer order history
+            Route::get('orders', [CustomerOrderController::class, 'index']);
+            // supports ?status=&cursor=&per_page=
+
+            // Latest order shortcut
+            Route::get('orders/latest', [CustomerOrderController::class, 'latest']);
+
+            //Customer Timeline
+            Route::get('orders/{order}/timeline', [CustomerOrderTimelineController::class, 'show']);
+
+            //Cancel Order
+
+            Route::get('discovery/services', CustomerDiscoveryServiceController::class);
+            Route::post('quotes', [CustomerQuoteController::class, 'store']);
+            Route::post('orders', [CustomerOrderController::class, 'store']);
+            Route::get('orders/{order}', [CustomerOrderController::class, 'show']);
+
+            Route::post('orders/{order}/approve-final', [\App\Http\Controllers\Api\V1\CustomerOrderPricingController::class, 'approveFinal']);
+            Route::post('orders/{order}/reject-final', [\App\Http\Controllers\Api\V1\CustomerOrderPricingController::class, 'rejectFinal']);
+
+        });
+
+    });
+
+
+    /************
+     * End of Customer APIs
+    */
+
+
     /**
      * Vendor / Admin (approved vendor)
      */
@@ -191,6 +233,41 @@ Route::prefix('v1')->group(function () {
             Route::get   ('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'show']);
             Route::put   ('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'update']);
             Route::delete('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'destroy']);
+
+             // List orders broadcast to this shop (pending/active)
+            Route::get('/order-broadcasts', [\App\Http\Controllers\Api\V1\VendorOrderBroadcastController::class, 'index']);
+
+            // Accept a broadcast (claim the order)
+            Route::post('/order-broadcasts/{broadcast}/accept', [\App\Http\Controllers\Api\V1\VendorOrderBroadcastController::class, 'accept']);
+
+            // Vendor order status actions
+            Route::post('/orders/{order}/mark-picked-up', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markPickedUp']);
+            Route::post('/orders/{order}/start-washing', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'startWashing']);
+            Route::post('/orders/{order}/mark-ready', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markReady']);
+            Route::post('/orders/{order}/picked-up-from-shop', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'pickedUpFromShop']);
+            Route::post('/orders/{order}/mark-delivered', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markDelivered']);
+            Route::post('/orders/{order}/mark-completed', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markCompleted']);
+
+            Route::post('/orders/{order}/mark-picked-up', [VendorOrderStatusController::class, 'markPickedUp']); // allowed if pickup_provider=vendor
+            Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']); // requires picked_up
+            Route::post('/orders/{order}/mark-ready', [VendorOrderStatusController::class, 'markReady']);
+
+
+            //For repricing proposal
+            Route::post('/orders/{order}/propose-final', [\App\Http\Controllers\Api\V1\VendorOrderPricingController::class, 'proposeFinal']);
+
+
+            //TODO : For 3rd party driver
+
+
+            Route::post('/orders/{order}/pickup-assigned', [DriverOrderStatusController::class, 'pickupAssigned']);
+            Route::post('/orders/{order}/picked-up', [DriverOrderStatusController::class, 'pickedUpFromCustomer']);
+
+            Route::post('/orders/{order}/delivery-assigned', [DriverOrderStatusController::class, 'deliveryAssigned']);
+            Route::post('/orders/{order}/out-for-delivery', [DriverOrderStatusController::class, 'outForDelivery']);
+            Route::post('/orders/{order}/delivered', [DriverOrderStatusController::class, 'delivered']);
+
+
         });
 
         // Master list for picker (if you don’t have yet)
@@ -238,5 +315,6 @@ Route::prefix('v1')->group(function () {
 
         // Notifications
         Route::post('/push/test', [AdminPushTestController::class, 'send']);
+
     });
 });

@@ -34,6 +34,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'approved_vendor' => \App\Http\Middleware\ApprovedVendor::class,
             'vendor_owns_vendor' => \App\Http\Middleware\VendorOwnsVendor::class,
             'vendor_owns_shop' => \App\Http\Middleware\VendorOwnsShop::class,
+            'customer' => \App\Http\Middleware\CustomerOnly::class,
+
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
