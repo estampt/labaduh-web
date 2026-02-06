@@ -15,10 +15,6 @@ class Vendor extends Model
         return $q->where('status', self::STATUS_APPROVED);
     }
 
-    public function isApproved(): bool
-    {
-        return $this->status === self::STATUS_APPROVED;
-    }
 
     protected $fillable = ['id','name','email','phone','approval_status','approved_at','approved_by','is_active','customers_serviced_count','kilograms_processed_total','rating_avg','rating_count','documents_submitted_at','documents_verified_at'];
     protected $casts = ['approved_at'=>'datetime','is_active'=>'boolean'];
@@ -29,7 +25,7 @@ class Vendor extends Model
     public function services() { return $this->hasMany(VendorService::class); }
     public function deliveryPricingRules() { return $this->hasMany(DeliveryPricingRule::class); }
     public function users() { return $this->hasMany(User::class); }
-    public function isApproved(): bool { return $this->approval_status === 'approved' && $this->is_active === true; }
+    public function isApproved(): bool { return $this->approval_status === 'approved' && $this->is_active === true && $this->status === 'approved'; }
     public function user()
     {
         // users.vendor_id -> vendors.id

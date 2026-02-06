@@ -11,6 +11,8 @@ use App\Support\OrderTimelineKeys;
 use App\Services\OrderTimelineRecorder;
 use App\Services\OrderTimelineService;
 
+use App\Services\OrderBroadcastService;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -19,6 +21,8 @@ class CustomerOrderController extends Controller
 
     public function store(Request $request)
     {
+
+
         $data = $request->validate([
             'search_lat' => ['required','numeric'],
             'search_lng' => ['required','numeric'],
@@ -61,15 +65,21 @@ class CustomerOrderController extends Controller
             'items.*.options.*.computed_price' => ['nullable','numeric','min:0'],
         ]);
 
+
+
         $customerId = (int) auth()->id();
 
         $order = DB::transaction(function () use ($data, $customerId) {
+            $settings = app(\App\Services\AppSettings::class);
+            $minRadiusKm = (float) $settings->get('broadcast.min_radius_km', 20.0);
+            $radiusKm = max((float) ($data['radius_km'] ?? 3), $minRadiusKm);
+
             $order = Order::create([
                 'customer_id' => $customerId,
                 'status' => 'published',
                 'search_lat' => $data['search_lat'],
                 'search_lng' => $data['search_lng'],
-                'radius_km' => $data['radius_km'] ?? 3,
+                'radius_km' => $radiusKm,
                 'pickup_mode' => $data['pickup_mode'],
                 'pickup_window_start' => $data['pickup_window_start'] ?? null,
                 'pickup_window_end' => $data['pickup_window_end'] ?? null,
@@ -132,6 +142,10 @@ class CustomerOrderController extends Controller
                 'total' => $total,
             ]);
 
+
+            // ✅ Broadcast to shops within radius (create order_broadcasts rows)
+            $this->broadcastToNearbyShops($order);
+
             app(OrderTimelineRecorder::class)->record(
                 $order,
                 OrderTimelineKeys::ORDER_CREATED,
@@ -141,9 +155,6 @@ class CustomerOrderController extends Controller
             return $order;
         });
 
-
-        // ✅ Broadcast to shops within radius (create order_broadcasts rows)
-        $this->broadcastToNearbyShops($order);
 
         return response()->json([
             'data' => $order->load('items.options'),
@@ -355,22 +366,40 @@ class CustomerOrderController extends Controller
         return $earthKm * $c;
     }
 
-
     private function broadcastToNearbyShops(\App\Models\Order $order): void
     {
+        $settings = app(\App\Services\AppSettings::class);
+
+        $topN = (int) $settings->get('broadcast.top_n', 100);
+        $ttlSeconds = (int) $settings->get('broadcast.ttl_seconds', 90);
+
         $ranked = app(\App\Services\ShopMatchingService::class)
-            ->matchForOrderBroadcast($order, 100);
+            ->matchForOrderBroadcast($order, $topN);
+
+                \Log::info('Broadcast: ranked result', [
+            'order_id' => $order->id,
+            'count' => is_array($ranked) ? count($ranked) : null,
+            'sample' => is_array($ranked) ? array_slice($ranked, 0, 3) : null,
+        ]);
+
+        if (empty($ranked)) {
+            \Log::info('Broadcast: no matched shops', ['order_id' => $order->id]);
+            return;
+        }
+
+        $expiresAt = now()->addSeconds($ttlSeconds);
 
         foreach ($ranked as $entry) {
-            \App\Models\OrderBroadcast::firstOrCreate(
+            \App\Models\OrderBroadcast::updateOrCreate(
                 [
                     'order_id' => $order->id,
                     'shop_id'  => $entry['shop_id'],
                 ],
                 [
-                    'vendor_id' => $entry['vendor_id'],
-                    'priority_score' => $entry['priority_score'],
-                    'status' => 'pending',
+                    'vendor_id'       => $entry['vendor_id'],
+                    'priority_score'  => $entry['priority_score'] ?? null,
+                    'status'          => 'pending',
+                    'expires_at'      => $expiresAt, // remove if you don't have this column
                 ]
             );
         }

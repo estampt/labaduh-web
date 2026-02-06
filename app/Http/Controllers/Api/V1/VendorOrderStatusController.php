@@ -11,6 +11,7 @@ use App\Services\OrderTimelineRecorder;
 use App\Support\OrderTimelineKeys;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class VendorOrderStatusController extends Controller
 {
@@ -50,22 +51,30 @@ class VendorOrderStatusController extends Controller
 
     public function markPickedUp(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
     {
-        $this->ensureOrderBelongsToShop($order, $shop);
-        $this->canVendorMarkPickedUp($order);
+        // Ensure this order belongs to this vendor/shop
+        abort_unless(($order->pickup_provider ?? 'vendor') === 'vendor', 409, 'pickup_provider is not vendor');
 
-        $this->transition($order, OrderTimelineKeys::PICKUP_SCHEDULED, OrderTimelineKeys::PICKED_UP);
+        abort_unless(in_array($order->status, [OrderTimelineKeys::PICKED_UP], true), 409, 'invalid status for mark-picked-up: '.$order->status);
 
-        app(OrderTimelineRecorder::class)->record(
-            $order,
-            OrderTimelineKeys::PICKED_UP,
-            'vendor',
-            $vendor->id,
-            [
-                'shop_id' => $shop->id,
-                'broadcast_id' => $broadcast->id,
-            ]
-        );
-        return response()->json(['data' => $order->fresh()]);
+
+        DB::transaction(function () use ($order, $vendor, $shop) {
+            $order->update([
+                'status' => 'picked_up',
+            ]);
+
+            // Record timeline event (if you already have recorder)
+            app(\App\Services\OrderTimelineRecorder::class)->record(
+                $order,
+                OrderTimelineKeys::PICKED_UP,
+                'vendor',
+                $vendor->id,
+                ['shop_id' => $shop->id]
+            );
+        });
+
+        return response()->json([
+            'data' => $order->fresh()->load('items.options'),
+        ]);
     }
 
 
@@ -204,13 +213,5 @@ class VendorOrderStatusController extends Controller
             abort(409, 'Delivery is handled by driver. Vendor cannot update delivery statuses.');
         }
     }
-
-    private function canVendorMarkPickedUp(Order $order): void
-    {
-        if ($order->pickup_provider === 'driver') {
-            abort(409, 'Pickup is handled by driver. Vendor cannot mark picked up.');
-        }
-    }
-
 
 }

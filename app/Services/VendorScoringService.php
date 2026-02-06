@@ -152,7 +152,7 @@ class VendorScoringService
             ($ratingScore * 0.15) +
             ($priceScore * 0.15) +
             ($subscriptionScore * 0.15) +
-            ($reliabilityScore * 0.10),
+            ($reliabilityScore * 0.10)
         );
 
         $final = $base * (1 + ($scoreBoostPct / 100.0));

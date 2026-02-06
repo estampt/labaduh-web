@@ -49,9 +49,8 @@ class Order extends Model
 
     public function timelineEvents()
     {
-        return $this->hasMany(
-            \App\Models\OrderTimelineEvent::class
-        )->orderBy('at');
+        return $this->hasMany(\App\Models\OrderTimelineEvent::class, 'order_id');
     }
+
 
 }

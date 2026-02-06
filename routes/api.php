@@ -23,18 +23,26 @@ use App\Http\Controllers\Api\V1\VendorShopController;
 use App\Http\Controllers\Api\V1\ShopServiceController;
 use App\Http\Controllers\Api\V1\ShopServiceOptionController;
 
+use App\Http\Controllers\Api\V1\CustomerOrderPricingController;
 use App\Http\Controllers\Api\V1\CustomerDiscoveryServiceController;
 use App\Http\Controllers\Api\V1\CustomerQuoteController;
 use App\Http\Controllers\Api\V1\CustomerOrderController;
 use App\Http\Controllers\Api\V1\CustomerOrderTimelineController;
 use App\Http\Controllers\Api\V1\VendorOrderPricingController;
-
+use App\Http\Controllers\Api\V1\VendorOrderStatusController;
+use App\Http\Controllers\Api\V1\VendorOrderBroadcastController;
 
 use App\Http\Controllers\Api\V1\AdminAddonController;
 use App\Http\Controllers\Api\V1\AdminPushTestController;
+use App\Http\Controllers\Api\V1\AdminServiceController;
 use App\Http\Controllers\Api\V1\AdminServiceOptionController;
 use App\Http\Controllers\Api\V1\AdminVendorApprovalController;
 use App\Http\Controllers\Api\V1\AdminVendorDocumentController;
+
+use App\Http\Controllers\Api\V1\FulfillmentController;
+
+use App\Http\Controllers\Api\V1\AppSettingsController;
+use App\Http\Controllers\Api\V1\AppConfigController;
 
 Route::prefix('v1')->group(function () {
 
@@ -49,7 +57,7 @@ Route::prefix('v1')->group(function () {
 
         // Email OTP
         Route::post('/send-email-otp', [AuthController::class, 'sendEmailOtp'])->middleware('throttle:5,1');
-        Route::post('/verify-email-otp', [AuthController::class, 'verifyEmailOtp']);
+        Route::post('/verify-email-otp', [AuthController::class, 'verifyEmailOtp'])->middleware('auth:sanctum');;
 
         // SMS placeholder
         Route::post('/send-phone-otp', [AuthController::class, 'sendPhoneOtp'])->middleware('throttle:3,1');
@@ -115,7 +123,7 @@ Route::prefix('v1')->group(function () {
 
         // Payments / fulfillment
         Route::post('/orders/{order}/payment-intent', [PaymentController::class, 'createOrderPaymentIntent']);
-        Route::patch('/orders/{order}/fulfillment', [\App\Http\Controllers\Api\V1\FulfillmentController::class, 'set']);
+        Route::patch('/orders/{order}/fulfillment', [FulfillmentController::class, 'set']);
 
         // Reviews
         Route::post('/orders/{order}/review', [VendorReviewController::class, 'storeForOrder']);
@@ -141,7 +149,7 @@ Route::prefix('v1')->group(function () {
             Route::get('orders/latest', [CustomerOrderController::class, 'latest']);
 
             //Customer Timeline
-            Route::get('orders/{order}/timeline', [CustomerOrderTimelineController::class, 'show']);
+            //Route::get('orders/{order}/timeline', [CustomerOrderTimelineController::class, 'show']);
 
             //Cancel Order
 
@@ -150,8 +158,8 @@ Route::prefix('v1')->group(function () {
             Route::post('orders', [CustomerOrderController::class, 'store']);
             Route::get('orders/{order}', [CustomerOrderController::class, 'show']);
 
-            Route::post('orders/{order}/approve-final', [\App\Http\Controllers\Api\V1\CustomerOrderPricingController::class, 'approveFinal']);
-            Route::post('orders/{order}/reject-final', [\App\Http\Controllers\Api\V1\CustomerOrderPricingController::class, 'rejectFinal']);
+            Route::post('orders/{order}/approve-final', [CustomerOrderPricingController::class, 'approveFinal']);
+            Route::post('orders/{order}/reject-final', [CustomerOrderPricingController::class, 'rejectFinal']);
 
         });
 
@@ -197,19 +205,22 @@ Route::prefix('v1')->group(function () {
         Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
 
         // Service list (your admin-service controller endpoint kept here as you had it)
-        Route::get('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'index']);
+        Route::get('/services', [AdminServiceController::class, 'index']);
 
         /**
          * Vendor Shop Service Prices CRUD
          */
         Route::prefix('/vendors/{vendor}/shops/{shop}')->middleware(['vendor_owns_vendor', 'vendor_owns_shop'])->group(function () {
 
+
             // Service prices
+            /*
             Route::get('/service-prices', [VendorShopServicePriceController::class, 'index']);
             Route::post('/service-prices', [VendorShopServicePriceController::class, 'store']);
             Route::put('/service-prices/{price}', [VendorShopServicePriceController::class, 'update']);
             Route::delete('/service-prices/{price}', [VendorShopServicePriceController::class, 'destroy']);
             Route::patch('/service-prices/{price}/toggle', [VendorShopServicePriceController::class, 'toggle']);
+
 
             // Option prices
             Route::get('/option-prices', [VendorServiceOptionPriceController::class, 'index']);
@@ -217,6 +228,7 @@ Route::prefix('v1')->group(function () {
             Route::put('/option-prices/{optionPrice}', [VendorServiceOptionPriceController::class, 'update']);
             Route::delete('/option-prices/{optionPrice}', [VendorServiceOptionPriceController::class, 'destroy']);
 
+   */
 
             //Added by Rehnee on 31-Jan-2026
             //New Services Model
@@ -235,18 +247,18 @@ Route::prefix('v1')->group(function () {
             Route::delete('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'destroy']);
 
              // List orders broadcast to this shop (pending/active)
-            Route::get('/order-broadcasts', [\App\Http\Controllers\Api\V1\VendorOrderBroadcastController::class, 'index']);
+            Route::get('/order-broadcasts', [VendorOrderBroadcastController::class, 'index']);
 
             // Accept a broadcast (claim the order)
-            Route::post('/order-broadcasts/{broadcast}/accept', [\App\Http\Controllers\Api\V1\VendorOrderBroadcastController::class, 'accept']);
+            Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
 
             // Vendor order status actions
-            Route::post('/orders/{order}/mark-picked-up', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markPickedUp']);
-            Route::post('/orders/{order}/start-washing', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'startWashing']);
-            Route::post('/orders/{order}/mark-ready', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markReady']);
-            Route::post('/orders/{order}/picked-up-from-shop', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'pickedUpFromShop']);
-            Route::post('/orders/{order}/mark-delivered', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markDelivered']);
-            Route::post('/orders/{order}/mark-completed', [\App\Http\Controllers\Api\V1\VendorOrderStatusController::class, 'markCompleted']);
+            Route::post('/orders/{order}/mark-picked-up', [VendorOrderStatusController::class, 'markPickedUp']);
+            Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']);
+            Route::post('/orders/{order}/mark-ready', [VendorOrderStatusController::class, 'markReady']);
+            Route::post('/orders/{order}/picked-up-from-shop', [VendorOrderStatusController::class, 'pickedUpFromShop']);
+            Route::post('/orders/{order}/mark-delivered', [VendorOrderStatusController::class, 'markDelivered']);
+            Route::post('/orders/{order}/mark-completed', [VendorOrderStatusController::class, 'markCompleted']);
 
             Route::post('/orders/{order}/mark-picked-up', [VendorOrderStatusController::class, 'markPickedUp']); // allowed if pickup_provider=vendor
             Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']); // requires picked_up
@@ -254,24 +266,22 @@ Route::prefix('v1')->group(function () {
 
 
             //For repricing proposal
-            Route::post('/orders/{order}/propose-final', [\App\Http\Controllers\Api\V1\VendorOrderPricingController::class, 'proposeFinal']);
+            Route::post('/orders/{order}/propose-final', [VendorOrderPricingController::class, 'proposeFinal']);
 
 
             //TODO : For 3rd party driver
+//            Route::post('/orders/{order}/pickup-assigned', [DriverOrderStatusController::class, 'pickupAssigned']);
+//            Route::post('/orders/{order}/picked-up', [DriverOrderStatusController::class, 'pickedUpFromCustomer']);
 
-
-            Route::post('/orders/{order}/pickup-assigned', [DriverOrderStatusController::class, 'pickupAssigned']);
-            Route::post('/orders/{order}/picked-up', [DriverOrderStatusController::class, 'pickedUpFromCustomer']);
-
-            Route::post('/orders/{order}/delivery-assigned', [DriverOrderStatusController::class, 'deliveryAssigned']);
-            Route::post('/orders/{order}/out-for-delivery', [DriverOrderStatusController::class, 'outForDelivery']);
-            Route::post('/orders/{order}/delivered', [DriverOrderStatusController::class, 'delivered']);
+//            Route::post('/orders/{order}/delivery-assigned', [DriverOrderStatusController::class, 'deliveryAssigned']);
+//            Route::post('/orders/{order}/out-for-delivery', [DriverOrderStatusController::class, 'outForDelivery']);
+//            Route::post('/orders/{order}/delivered', [DriverOrderStatusController::class, 'delivered']);
 
 
         });
 
         // Master list for picker (if you don’t have yet)
-        Route::get('/service-options', [\App\Http\Controllers\Api\V1\AdminServiceOptionController::class, 'index']);
+        Route::get('/service-options', [AdminServiceOptionController::class, 'index']);
     });
 
 
@@ -307,14 +317,20 @@ Route::prefix('v1')->group(function () {
         Route::patch('/vendor-documents/{document}/reject', [AdminVendorDocumentController::class, 'reject']);
 
         // Services (admin CRUD)
-        Route::get('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'index']);
-        Route::post('/services', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'store']);
-        Route::put('/services/{service}', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'update']);
-        Route::delete('/services/{service}', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'destroy']);
-        Route::patch('/services/{service}/active', [\App\Http\Controllers\Api\V1\AdminServiceController::class, 'setActive']);
+        Route::get('/services', [AdminServiceController::class, 'index']);
+        Route::post('/services', [AdminServiceController::class, 'store']);
+        Route::put('/services/{service}', [AdminServiceController::class, 'update']);
+        Route::delete('/services/{service}', [AdminServiceController::class, 'destroy']);
+        Route::patch('/services/{service}/active', [AdminServiceController::class, 'setActive']);
 
         // Notifications
         Route::post('/push/test', [AdminPushTestController::class, 'send']);
+
+        //App Configuration
+        Route::get('app-config', [AppConfigController::class, 'show']);
+
+        Route::get('app-settings', [AppSettingsController::class, 'index']);
+        Route::post('app-settings', [AppSettingsController::class, 'upsert']);
 
     });
 });
