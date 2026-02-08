@@ -29,10 +29,10 @@ class CustomerQuoteController extends Controller
 
         // Nearby shops
         $shopIds = VendorShop::query()
-            ->whereNotNull('lat')
-            ->whereNotNull('lng')
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
             ->whereRaw(
-                "ST_Distance_Sphere(point(lng, lat), point(?, ?)) <= ?",
+                "ST_Distance_Sphere(point(longitude, latitude), point(?, ?)) <= ?",
                 [$lng, $lat, $radius * 1000]
             )
             ->pluck('id');
@@ -46,7 +46,7 @@ class CustomerQuoteController extends Controller
             ->whereIn('service_id', $serviceIds)
             ->where('is_active', true)
             ->with([
-                'shop:id,vendor_id,lat,lng,name',
+                'shop:id,vendor_id,latitude,longitude,name',
                 'service:id,name,icon,base_unit',
                 'options.serviceOption:id,name,price,is_required,is_active',
             ])

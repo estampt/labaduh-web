@@ -161,6 +161,9 @@ Route::prefix('v1')->group(function () {
             Route::post('orders/{order}/approve-final', [CustomerOrderPricingController::class, 'approveFinal']);
             Route::post('orders/{order}/reject-final', [CustomerOrderPricingController::class, 'rejectFinal']);
 
+            Route::post('/orders/{order}/confirm-delivery', [CustomerOrderController::class, 'confirmDelivery']);
+            Route::post('/orders/{order}/feedback', [CustomerOrderController::class, 'feedback']);
+
         });
 
     });

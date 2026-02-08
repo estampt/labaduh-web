@@ -18,6 +18,97 @@ use Illuminate\Support\Facades\DB;
 
 class CustomerOrderController extends Controller
 {
+    /*
+    |--------------------------------------------------------------------------
+    | INDEX — Order History
+    | Supports: ?status=&cursor=&per_page=
+    |--------------------------------------------------------------------------
+    */
+    public function index(Request $request)
+    {
+        $user = $request->user();
+
+        $perPage = (int) ($request->get('per_page', 10));
+
+        $query = Order::query()
+            ->where('customer_id', $user->id)
+            ->orderByDesc('created_at');   // 👈 ensures date DESC
+
+        /*
+        |--------------------------------------------------------------------------
+        | Status filter
+        |--------------------------------------------------------------------------
+        */
+        $status = $request->get('status', 'active');
+
+        if ($status === 'active') {
+            $query->whereNotIn('status', $this->closedStatuses());
+        } elseif ($status === 'closed') {
+            $query->whereIn('status', $this->closedStatuses());
+        } elseif ($status !== 'all') {
+            // allow multiple: ?status=published,broadcasting
+            $statuses = explode(',', $status);
+            $query->whereIn('status', $statuses);
+        }
+
+        $orders = $query->cursorPaginate($perPage);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Reuse SHOW logic
+        |--------------------------------------------------------------------------
+        */
+        $data = $orders->getCollection()
+            ->map(fn ($order) => $this->transformFromShow($order));
+
+        return response()->json([
+            'data' => $data,
+            'cursor' => $orders->nextCursor()?->encode(),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | LATEST — Non-closed orders shortcut
+    |--------------------------------------------------------------------------
+    */
+    public function latest(Request $request)
+    {
+        $user = $request->user();
+        $perPage = (int) ($request->get('per_page', 5));
+
+        $orders = Order::query()
+            ->where('customer_id', $user->id)
+            ->whereNotIn('status', $this->closedStatuses())
+            ->orderByDesc('created_at')   // 👈 newest first
+            ->cursorPaginate($perPage);
+
+        $data = $orders->getCollection()
+            ->map(fn ($order) => $this->transformFromShow($order));
+
+        return response()->json([
+            'data' => $data,
+            'cursor' => $orders->nextCursor()?->encode(),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SHOW — Single order (already exists)
+    |--------------------------------------------------------------------------
+    */
+    public function show($id)
+    {
+        $order = Order::with([
+            'items.options',
+            'shop',
+            'driver',
+        ])->findOrFail($id);
+
+        return response()->json([
+            'data' => $this->transformFromShow($order)
+        ]);
+    }
 
     public function store(Request $request)
     {
@@ -161,51 +252,7 @@ class CustomerOrderController extends Controller
         ]);
     }
 
-    /*
-    private function broadcastToNearbyShops(\App\Models\Order $order): void
-    {
-        $lat = (float) $order->search_lat;
-        $lng = (float) $order->search_lng;
-        $radiusKm = (float) ($order->radius_km ?? 3);
 
-        $latDelta = $radiusKm / 111.0;
-        $lngDelta = $radiusKm / (111.0 * max(cos(deg2rad($lat)), 0.01));
-
-        $shops = \App\Models\VendorShop::query()
-            ->where('is_active', true)
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
-            ->whereBetween('latitude', [$lat - $latDelta, $lat + $latDelta])
-            ->whereBetween('longitude', [$lng - $lngDelta, $lng + $lngDelta])
-            ->get(['id', 'vendor_id', 'latitude', 'longitude']);
-
-        if ($shops->isEmpty()) return;
-
-        foreach ($shops as $shop) {
-            if (!$this->withinRadiusKm(
-                $lat,
-                $lng,
-                (float) $shop->latitude,
-                (float) $shop->longitude,
-                $radiusKm
-            )) {
-                continue;
-            }
-
-            \App\Models\OrderBroadcast::firstOrCreate(
-                [
-                    'order_id' => $order->id,
-                    'shop_id'  => $shop->id,
-                ],
-                [
-                    'vendor_id' => $shop->vendor_id,
-                    'status'    => 'pending',
-                ]
-            );
-        }
-    }
-
-    */
     private function withinRadiusKm(
         float $lat1,
         float $lng1,
@@ -227,121 +274,45 @@ class CustomerOrderController extends Controller
         return ($earthKm * $c) <= $radiusKm;
     }
 
-    public function show(Order $order)
-    {
-        abort_unless((int) $order->customer_id === (int) auth()->id(), 403);
-
-        // Load items + timeline events (Option B)
-        $order->load(['items.options', 'timelineEvents']);
-
-        $timeline = app(OrderTimelineService::class)->forCustomer($order);
-
-        return response()->json([
-            'data' => [
-                'order' => $order,
-                // keep old key name for frontend compatibility
-                'timeline' => $timeline,
-            ],
-        ]);
-    }
-    //TODO : OPtion for later
-/*
-    public function show(Order $order)
-    {
-        abort_unless((int) $order->customer_id === (int) auth()->id(), 403);
-
-        $order->load(['items.options', 'timelineEvents']);
-
-        $structured = app(OrderTimelineService::class)->forCustomer($order);
-
-        // Convert structured steps to old-style array of completed keys
-        $timelineRaw = collect($structured['steps'])
-            ->filter(fn($s) => in_array($s['state'], ['done', 'current']))
-            ->pluck('key')
-            ->values()
-            ->all();
-
-        return response()->json([
-            'data' => [
-                'order' => $order,
-                'timeline_raw' => $timelineRaw,
-                'timeline' => $structured,
-            ],
-        ]);
-    }
-
-*/
-
     /*
-    private function broadcastToNearbyShops(\App\Models\Order $order): void
+    |--------------------------------------------------------------------------
+    | Reusable transformer (shared by show/index/latest)
+    |--------------------------------------------------------------------------
+    */
+    private function transformFromShow(Order $order): array
     {
-        $lat = (float) $order->search_lat;
-        $lng = (float) $order->search_lng;
-        $radiusKm = (float) ($order->radius_km ?? 3);
+        // If your existing show() already returns an array,
+        // you can just extract that mapping here.
 
-        $shops = \App\Models\VendorShop::query()
-            ->where('vendor_shops.is_active', true)
-            ->whereNotNull('vendor_shops.latitude')
-            ->whereNotNull('vendor_shops.longitude')
-            ->join('vendors', 'vendors.id', '=', 'vendor_shops.vendor_id')
-            ->select([
-                'vendor_shops.id as shop_id',
-                'vendor_shops.latitude',
-                'vendor_shops.longitude',
-                'vendor_shops.vendor_id',
-                'vendors.subscription_tier',
-            ])
-            ->get();
+        return [
+            'id' => $order->id,
+            'status' => $order->status,
+            'pricing_status' => $order->pricing_status,
+            'estimated_total' => $order->estimated_total,
+            'final_total' => $order->final_total,
+            'created_at' => $order->created_at,
 
-        $ranked = collect();
+            'shop' => $order->shop,
+            'driver' => $order->driver,
 
-        foreach ($shops as $shop) {
-            $distanceKm = $this->distanceKm(
-                $lat,
-                $lng,
-                (float) $shop->latitude,
-                (float) $shop->longitude
-            );
+            'items' => $order->items->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'service_id' => $item->service_id,
+                    'qty' => $item->qty,
+                    'price' => $item->computed_price,
 
-            if ($distanceKm > $radiusKm) {
-                continue;
-            }
-
-            $ranked->push([
-                'shop_id' => $shop->shop_id,
-                'vendor_id' => $shop->vendor_id,
-                'priority' => $this->subscriptionScore($shop->subscription_tier),
-                'distance_km' => $distanceKm,
-            ]);
-        }
-
-        if ($ranked->isEmpty()) return;
-
-        // 🔥 Priority DESC, Distance ASC
-        $ranked = $ranked
-            ->sortBy([
-                fn ($a) => -$a['priority'],
-                fn ($a) => $a['distance_km'],
-            ])
-            ->values();
-
-        foreach ($ranked as $entry) {
-            \App\Models\OrderBroadcast::firstOrCreate(
-                [
-                    'order_id' => $order->id,
-                    'shop_id'  => $entry['shop_id'],
-                ],
-                [
-                    'vendor_id' => $entry['vendor_id'],
-                    'priority_score' => $entry['priority'],
-                    'status' => 'pending',
-                ]
-            );
-        }
+                    'options' => $item->options->map(fn ($opt) => [
+                        'id' => $opt->id,
+                        'name' => $opt->name,
+                        'price' => $opt->computed_price,
+                    ]),
+                ];
+            }),
+        ];
     }
 
-    */
-    private function subscriptionScore(string $tier): int
+     private function subscriptionScore(string $tier): int
     {
         return match ($tier) {
             'premium' => 100,
@@ -405,5 +376,151 @@ class CustomerOrderController extends Controller
         }
     }
 
+    public function confirmDelivery(Request $request, Order $order)
+    {
+        $user = $request->user();
 
+        // ✅ Security: only the owner customer can confirm
+        if ((int) $order->customer_id !== (int) $user->id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        // ✅ Idempotent: if already completed, just return
+        if (($order->status ?? null) === 'completed') {
+            return response()->json(['data' => $order->fresh()]);
+        }
+
+        // ✅ Only allow confirm when the order is actually delivered (or out_for_delivery if you prefer)
+        $allowedStatuses = ['delivered']; // optionally: ['out_for_delivery','delivered']
+        if (!in_array($order->status, $allowedStatuses, true)) {
+            return response()->json([
+                'message' => "Cannot confirm delivery unless status is: " . implode(', ', $allowedStatuses),
+                'status' => $order->status,
+            ], 422);
+        }
+
+        // ✅ Transition delivered -> completed
+        $this->transition($order, OrderTimelineKeys::DELIVERED, OrderTimelineKeys::COMPLETED);
+
+        // ✅ Record timeline as customer confirmation
+        app(OrderTimelineRecorder::class)->record(
+            $order,
+            OrderTimelineKeys::COMPLETED,   // or a dedicated key like CUSTOMER_CONFIRMED if you have it
+            'customer',
+            $user->id,
+            [
+                'shop_id' => $order->shop_id ?? null,
+                'order_id' => $order->id,
+            ]
+        );
+
+        return response()->json(['data' => $order->fresh()]);
+    }
+
+
+     public function feedback(Request $request, Order $order)
+    {
+        $user = $request->user();
+
+        // 🔐 Ensure ownership
+        if ((int) $order->customer_id !== (int) $user->id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        // ✅ Only completed orders can be reviewed
+        if ($order->status !== 'completed') {
+            return response()->json([
+                'message' => 'Feedback allowed only for completed orders.',
+                'status' => $order->status,
+            ], 422);
+        }
+
+        // ❗ Ensure an accepted shop exists
+        if (empty($order->accepted_shop_id)) {
+            return response()->json([
+                'message' => 'No accepted shop found for this order.'
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'comments' => ['nullable', 'string', 'max:2000'],
+
+            // multiple uploaded image URLs
+            'image_urls' => ['nullable', 'array', 'max:10'],
+            'image_urls.*' => ['string', 'max:2048'],
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create / Update Feedback
+        |--------------------------------------------------------------------------
+        */
+        $feedback = \App\Models\OrderFeedback::updateOrCreate(
+            ['order_id' => $order->id],
+            [
+                // 👇 derive from accepted shop
+                'vendor_shop_id' => $order->accepted_shop_id,
+
+                'customer_id' => $user->id,
+                'rating' => (int) $data['rating'],
+                'comments' => $data['comments'] ?? null,
+            ]
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Replace images (idempotent)
+        |--------------------------------------------------------------------------
+        */
+        if (array_key_exists('image_urls', $data)) {
+
+            // delete old
+            $feedback->images()->delete();
+
+            $urls = $data['image_urls'] ?? [];
+            $rows = [];
+
+            foreach ($urls as $i => $url) {
+                $rows[] = [
+                    'order_feedback_id' => $feedback->id,
+                    'image_url' => $url,
+                    'sort_order' => $i,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+
+            if (!empty($rows)) {
+                \App\Models\OrderFeedbackImage::insert($rows);
+            }
+        }
+
+        return response()->json([
+            'data' => $feedback->load('images'),
+        ], 201);
+    }
+
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Closed statuses helper
+    |--------------------------------------------------------------------------
+    */
+
+    private function transition(Order $order, string $from, string $to): void
+    {
+        abort_unless($order->status === $from, 409, "Invalid status transition: {$order->status} -> {$to}");
+        $order->update(['status' => $to]);
+    }
+
+    private function closedStatuses(): array
+    {
+        return [
+            'completed',
+            'cancelled',
+            'closed',
+        ];
+    }
 }

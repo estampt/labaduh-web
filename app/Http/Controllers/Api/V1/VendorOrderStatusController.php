@@ -54,7 +54,7 @@ class VendorOrderStatusController extends Controller
         // Ensure this order belongs to this vendor/shop
         abort_unless(($order->pickup_provider ?? 'vendor') === 'vendor', 409, 'pickup_provider is not vendor');
 
-        abort_unless(in_array($order->status, [OrderTimelineKeys::PICKED_UP], true), 409, 'invalid status for mark-picked-up: '.$order->status);
+        abort_unless(in_array($order->status, [OrderTimelineKeys::ORDER_CREATED,OrderTimelineKeys::PUBLISHED,OrderTimelineKeys::PICKUP_SCHEDULED], true), 409, 'invalid status for mark-picked-up: '.$order->status);
 
 
         DB::transaction(function () use ($order, $vendor, $shop) {
@@ -96,10 +96,14 @@ class VendorOrderStatusController extends Controller
 
     public function startWashing(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
     {
-      $this->ensureOrderBelongsToShop($order, $shop);
+      //$this->ensureOrderBelongsToShop($order, $shop);
 
       // ✅ auto-confirm if expired
       $this->autoApproveIfExpired($order);
+
+       // Ensure this order belongs to this vendor/shop
+        abort_unless(($order->pickup_provider ?? 'vendor') === 'vendor', 409, 'pickup_provider is not vendor');
+
 
       // ✅ must be approved (or auto-approved) before washing
       abort_unless(in_array($order->pricing_status, ['approved','auto_approved'], true), 409, 'Waiting for customer approval.');
