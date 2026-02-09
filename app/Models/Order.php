@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\User;
+
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -52,5 +54,16 @@ class Order extends Model
         return $this->hasMany(\App\Models\OrderTimelineEvent::class, 'order_id');
     }
 
+    public function acceptedShop()
+    {
+        return $this->belongsTo(VendorShop::class, 'accepted_shop_id');
+    }
+
+
+    public function driver()
+    {
+        // ✅ adjust FK name to match your orders table
+        return $this->belongsTo(User::class, 'driver_id');
+    }
 
 }

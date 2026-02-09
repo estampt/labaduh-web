@@ -10,11 +10,13 @@ use App\Models\VendorShop;
 use App\Support\OrderTimelineKeys;
 use App\Services\OrderTimelineRecorder;
 use App\Services\OrderTimelineService;
-
 use App\Services\OrderBroadcastService;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+
 
 class CustomerOrderController extends Controller
 {
@@ -101,7 +103,7 @@ class CustomerOrderController extends Controller
     {
         $order = Order::with([
             'items.options',
-            'shop',
+            'acceptedShop',
             'driver',
         ])->findOrFail($id);
 
@@ -109,6 +111,7 @@ class CustomerOrderController extends Controller
             'data' => $this->transformFromShow($order)
         ]);
     }
+
 
     public function store(Request $request)
     {
@@ -418,7 +421,8 @@ class CustomerOrderController extends Controller
     }
 
 
-     public function feedback(Request $request, Order $order)
+
+    public function feedback(Request $request, Order $order)
     {
         $user = $request->user();
 
@@ -446,7 +450,11 @@ class CustomerOrderController extends Controller
             'rating' => ['required', 'integer', 'min:1', 'max:5'],
             'comments' => ['nullable', 'string', 'max:2000'],
 
-            // multiple uploaded image URLs
+            // ✅ NEW: real uploaded images (multipart)
+            'images' => ['nullable', 'array', 'max:10'],
+            'images.*' => ['file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'], // 5MB each
+
+            // (Optional) still allow urls if you want
             'image_urls' => ['nullable', 'array', 'max:10'],
             'image_urls.*' => ['string', 'max:2048'],
         ]);
@@ -459,9 +467,7 @@ class CustomerOrderController extends Controller
         $feedback = \App\Models\OrderFeedback::updateOrCreate(
             ['order_id' => $order->id],
             [
-                // 👇 derive from accepted shop
                 'vendor_shop_id' => $order->accepted_shop_id,
-
                 'customer_id' => $user->id,
                 'rating' => (int) $data['rating'],
                 'comments' => $data['comments'] ?? null,
@@ -471,24 +477,70 @@ class CustomerOrderController extends Controller
         /*
         |--------------------------------------------------------------------------
         | Replace images (idempotent)
+        | - If client sends images[] OR image_urls, we replace existing set
+        | - For uploaded images, we also delete old stored files (best-effort)
         |--------------------------------------------------------------------------
         */
-        if (array_key_exists('image_urls', $data)) {
+        $wantsReplaceImages = $request->hasFile('images') || array_key_exists('image_urls', $data);
 
-            // delete old
+        if ($wantsReplaceImages) {
+            // delete old files (best-effort) if they were stored locally
+            $old = $feedback->images()->get();
+            foreach ($old as $img) {
+                // if you stored paths like "storage/feedback/..." or "feedback/..."
+                $path = $img->image_url ?? null;
+                if ($path) {
+                    // normalize "storage/xxx" -> "xxx" for public disk
+                    $normalized = str_starts_with($path, 'storage/') ? substr($path, 8) : $path;
+
+                    // only try deleting if it looks like our folder
+                    if (str_starts_with($normalized, 'feedback/')) {
+                        Storage::disk('public')->delete($normalized);
+                    }
+                }
+            }
+
+            // delete db rows
             $feedback->images()->delete();
 
-            $urls = $data['image_urls'] ?? [];
             $rows = [];
+            $sort = 0;
 
-            foreach ($urls as $i => $url) {
-                $rows[] = [
-                    'order_feedback_id' => $feedback->id,
-                    'image_url' => $url,
-                    'sort_order' => $i,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ];
+            // 1) save uploaded files
+            if ($request->hasFile('images')) {
+                foreach ($request->file('images') as $file) {
+                    if (!$file || !$file->isValid()) continue;
+
+                    $ext = $file->getClientOriginalExtension();
+                    $filename = Str::uuid() . '.' . strtolower($ext);
+
+                    // stored under: storage/app/public/feedback/{order_id}/...
+                    $storedPath = $file->storeAs("feedback/{$order->id}", $filename, 'public');
+
+                    // public URL: /storage/feedback/{order_id}/...
+                    $publicUrl = Storage::disk('public')->url($storedPath);
+
+                    $rows[] = [
+                        'order_feedback_id' => $feedback->id,
+                        'image_url' => $publicUrl,
+                        'sort_order' => $sort++,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+            }
+
+            // 2) optionally also keep image_urls if provided
+            if (array_key_exists('image_urls', $data)) {
+                foreach (($data['image_urls'] ?? []) as $url) {
+                    $rows[] = [
+                        'order_feedback_id' => $feedback->id,
+                        'image_url' => $url,
+                        'sort_order' => $sort++,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
             }
 
             if (!empty($rows)) {
@@ -500,6 +552,7 @@ class CustomerOrderController extends Controller
             'data' => $feedback->load('images'),
         ], 201);
     }
+
 
 
 
