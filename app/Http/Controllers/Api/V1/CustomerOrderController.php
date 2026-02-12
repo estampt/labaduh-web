@@ -69,6 +69,7 @@ class CustomerOrderController extends Controller
         ]);
     }
 
+
     /*
     |--------------------------------------------------------------------------
     | LATEST — Non-closed orders shortcut
@@ -80,8 +81,29 @@ class CustomerOrderController extends Controller
         $perPage = (int) ($request->get('per_page', 5));
 
         $orders = Order::query()
+            ->select('orders.*') // ✅ safety: never drop order columns
             ->where('customer_id', $user->id)
             ->whereNotIn('status', $this->closedStatuses())
+            ->with([
+                'acceptedShop' => function ($q) {
+                    $q->select([
+                            'id',
+                            'name',
+                            'profile_photo_url',
+                            'latitude',
+                            'longitude',
+                        ])
+                        // ⭐ rating (from order_feedbacks)
+                        ->addSelect([
+                            'avg_rating' => DB::table('order_feedbacks')
+                                ->selectRaw('AVG(rating)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                            'ratings_count' => DB::table('order_feedbacks')
+                                ->selectRaw('COUNT(*)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                        ]);
+                },
+            ])
             ->orderByDesc('created_at')   // 👈 newest first
             ->cursorPaginate($perPage);
 
@@ -282,38 +304,49 @@ class CustomerOrderController extends Controller
     | Reusable transformer (shared by show/index/latest)
     |--------------------------------------------------------------------------
     */
-    private function transformFromShow(Order $order): array
+    protected function transformFromShow(Order $order): array
     {
-        // If your existing show() already returns an array,
-        // you can just extract that mapping here.
+        // Ensure the same base payload your app expects (orders + relations)
+        $order->loadMissing([
+            'items.options',
+            'acceptedShop',
+            'driver',
+        ]);
 
-        return [
-            'id' => $order->id,
-            'status' => $order->status,
-            'pricing_status' => $order->pricing_status,
-            'estimated_total' => $order->estimated_total,
-            'final_total' => $order->final_total,
-            'created_at' => $order->created_at,
+        $payload = $order->toArray();
 
-            'shop' => $order->shop,
-            'driver' => $order->driver,
+        $shop = $order->acceptedShop;
 
-            'items' => $order->items->map(function ($item) {
-                return [
-                    'id' => $item->id,
-                    'service_id' => $item->service_id,
-                    'qty' => $item->qty,
-                    'price' => $item->computed_price,
+        $distanceKm = null;
+        if (
+            $shop &&
+            is_numeric($order->search_lat) && is_numeric($order->search_lng) &&
+            is_numeric($shop->latitude) && is_numeric($shop->longitude)
+        ) {
+            $distanceKm = $this->distanceKm(
+                (float) $order->search_lat,
+                (float) $order->search_lng,
+                (float) $shop->latitude,
+                (float) $shop->longitude
+            );
+        }
 
-                    'options' => $item->options->map(fn ($opt) => [
-                        'id' => $opt->id,
-                        'name' => $opt->name,
-                        'price' => $opt->computed_price,
-                    ]),
-                ];
-            }),
-        ];
+        // Add-only: shop summary for tracking UI
+        $payload['vendor_shop'] = $shop ? [
+            'id' => $shop->id,
+            'name' => $shop->name,
+            'profile_photo_url' => $shop->profile_photo_url,
+
+            // rating fields are selected in latest() via subquery (avg_rating, ratings_count)
+            'avg_rating' => isset($shop->avg_rating) && $shop->avg_rating !== null ? round((float) $shop->avg_rating, 1) : null,
+            'ratings_count' => (int) ($shop->ratings_count ?? 0),
+
+            'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
+        ] : null;
+
+        return $payload;
     }
+
 
      private function subscriptionScore(string $tier): int
     {

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\OrderFeedback;
 use Illuminate\Database\Eloquent\Model;
 
 class VendorShop extends Model
@@ -59,6 +60,11 @@ class VendorShop extends Model
     public function shopServices()
     {
         return $this->hasMany(\App\Models\ShopService::class, 'shop_id');
+    }
+
+    public function feedbacks()
+    {
+        return $this->hasMany(OrderFeedback::class, 'vendor_shop_id');
     }
 
 }
