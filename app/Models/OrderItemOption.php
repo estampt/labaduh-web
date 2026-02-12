@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+    use App\Models\ServiceOption;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -19,4 +20,11 @@ class OrderItemOption extends Model
     {
         return $this->belongsTo(OrderItem::class, 'order_item_id');
     }
+
+
+    public function serviceOption()
+    {
+        return $this->belongsTo(ServiceOption::class, 'service_option_id');
+    }
+
 }

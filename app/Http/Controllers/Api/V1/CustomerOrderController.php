@@ -103,6 +103,11 @@ class CustomerOrderController extends Controller
                                 ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
                         ]);
                 },
+
+                // ✅ ADD THIS: service info per order item
+                'items.service:id,name,description',
+                // ✅ options + service_options info
+                'items.options.serviceOption:id,name,description',
             ])
             ->orderByDesc('created_at')   // 👈 newest first
             ->cursorPaginate($perPage);
@@ -115,6 +120,7 @@ class CustomerOrderController extends Controller
             'cursor' => $orders->nextCursor()?->encode(),
         ]);
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -308,12 +314,47 @@ class CustomerOrderController extends Controller
     {
         // Ensure the same base payload your app expects (orders + relations)
         $order->loadMissing([
-            'items.options',
+            'items.options.serviceOption:id,name,description', // ✅ ADD: option -> service_option
+            'items.service:id,name,description',
             'acceptedShop',
             'driver',
         ]);
 
         $payload = $order->toArray();
+
+        // ✅ Ensure items include service + option details consistently
+        if ($order->relationLoaded('items')) {
+            $payload['items'] = $order->items->map(function ($item) {
+
+                $arr = $item->toArray();
+
+                // ---- SERVICE ----
+                $service = $item->service ?? null;
+                $arr['service'] = $service ? [
+                    'id' => $service->id,
+                    'name' => $service->name,
+                    'description' => $service->description,
+                ] : null;
+
+                // ---- OPTIONS (service_options.name/description) ----
+                if ($item->relationLoaded('options')) {
+                    $arr['options'] = $item->options->map(function ($opt) {
+                        $optArr = $opt->toArray();
+
+                        $serviceOption = $opt->serviceOption ?? null;
+                        $optArr['service_option'] = $serviceOption ? [
+                            'id' => $serviceOption->id,
+                            'name' => $serviceOption->name,
+                            'description' => $serviceOption->description,
+                        ] : null;
+
+                        return $optArr;
+                    })->values()->toArray();
+                }
+
+                return $arr;
+            })->values()->toArray();
+        }
 
         $shop = $order->acceptedShop;
 
@@ -338,7 +379,9 @@ class CustomerOrderController extends Controller
             'profile_photo_url' => $shop->profile_photo_url,
 
             // rating fields are selected in latest() via subquery (avg_rating, ratings_count)
-            'avg_rating' => isset($shop->avg_rating) && $shop->avg_rating !== null ? round((float) $shop->avg_rating, 1) : null,
+            'avg_rating' => isset($shop->avg_rating) && $shop->avg_rating !== null
+                ? round((float) $shop->avg_rating, 1)
+                : null,
             'ratings_count' => (int) ($shop->ratings_count ?? 0),
 
             'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
@@ -346,6 +389,8 @@ class CustomerOrderController extends Controller
 
         return $payload;
     }
+
+
 
 
      private function subscriptionScore(string $tier): int
