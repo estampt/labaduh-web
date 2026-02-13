@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Jobs\SendJobOfferPushJob;
+use App\Models\Vendor;
 use App\Models\JobOffer;
 use App\Models\JobRequest;
 use Carbon\Carbon;
@@ -9,10 +11,13 @@ use Illuminate\Support\Facades\DB;
 
 class OrderBroadcastService
 {
-    public function __construct(private VendorMatchingService $matching) {}
+    public function __construct(
+        private VendorMatchingService $matching,
+        private PushNotificationService $push, // ✅ add FCM service
+    ) {}
 
     /**
-     * Broadcast to top N vendors. Uses match_snapshot if present, otherwise recompute.
+     * "Broadcast" = create job_offers + send FCM pushes to matched vendors (after commit).
      */
     public function broadcast(JobRequest $jr, int $topN = 5, int $ttlSeconds = 90): array
     {
@@ -29,21 +34,53 @@ class OrderBroadcastService
                 'delivery_date' => $jr->delivery_date->format('Y-m-d'),
                 'delivery_time_start' => $jr->delivery_time_start,
                 'delivery_time_end' => $jr->delivery_time_end,
-                'estimated_kg' => (float)$jr->estimated_kg,
+                'estimated_kg' => (float) $jr->estimated_kg,
             ], 10);
+
             $jr->update(['match_snapshot' => $matches]);
         }
 
         $expiresAt = Carbon::now()->addSeconds($ttlSeconds);
 
         return DB::transaction(function () use ($jr, $matches, $topN, $expiresAt) {
+
+            // ✅ Step 1A: cancel old active offers so rebroadcast is clean
+            JobOffer::where('job_request_id', $jr->id)
+                ->whereIn('status', ['sent', 'seen'])
+                ->update(['status' => 'cancelled']);
+
             $created = [];
+
             foreach (array_slice($matches, 0, $topN) as $m) {
-                $created[] = JobOffer::updateOrCreate(
+                $offer = JobOffer::updateOrCreate(
                     ['job_request_id' => $jr->id, 'vendor_id' => $m['vendor_id']],
                     ['shop_id' => $m['shop_id'], 'status' => 'sent', 'expires_at' => $expiresAt]
                 );
+
+                $created[] = $offer;
             }
+
+            DB::afterCommit(function () use ($created) {
+
+                $freeDelay    = (int) env('VENDOR_PUSH_DELAY_FREE_SECONDS', 300);
+                $premiumDelay = (int) env('VENDOR_PUSH_DELAY_PREMIUM_SECONDS', 0);
+
+                foreach ($created as $offer) {
+
+                    $tier = Vendor::query()
+                        ->where('id', (int) $offer->vendor_id)
+                        ->value('subscription_tier');
+
+                    $tier = strtoupper((string) $tier);
+
+                    $delaySeconds = ($tier === 'PREMIUM') ? $premiumDelay : $freeDelay;
+
+                    SendJobOfferPushJob::dispatch((int) $offer->id)
+                        ->delay(now()->addSeconds($delaySeconds));
+                }
+            });
+
+
             return $created;
         });
     }

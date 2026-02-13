@@ -26,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // ✅ Your existing API logger
         $middleware->appendToGroup('api', \App\Http\Middleware\ApiLogger::class);
 
+        // ✅ NEW: update users.last_seen_at (throttled inside middleware)
+        $middleware->appendToGroup('api', \App\Http\Middleware\UpdateLastSeen::class);
+
         // ✅ Register route middleware aliases (Laravel 11)
         $middleware->alias([
             'admin_only' => \App\Http\Middleware\AdminOnly::class,
@@ -35,7 +38,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'vendor_owns_vendor' => \App\Http\Middleware\VendorOwnsVendor::class,
             'vendor_owns_shop' => \App\Http\Middleware\VendorOwnsShop::class,
             'customer' => \App\Http\Middleware\CustomerOnly::class,
-
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

@@ -43,6 +43,7 @@ use App\Http\Controllers\Api\V1\FulfillmentController;
 
 use App\Http\Controllers\Api\V1\AppSettingsController;
 use App\Http\Controllers\Api\V1\AppConfigController;
+use App\Http\Controllers\Api\V1\MeController;
 
 Route::prefix('v1')->group(function () {
 
@@ -84,8 +85,8 @@ Route::prefix('v1')->group(function () {
     // Push / notifications (keep public if you want — you can move under auth later)
     Route::post('/push/token', [PushTokenController::class, 'store']);
 
-    //Route::get('/notifications/ops', [NotificationController::class, 'ops']);
-    //Route::get('/notifications/chat', [NotificationController::class, 'chat']);
+    Route::get('/notifications/ops', [NotificationController::class, 'ops']);
+    Route::get('/notifications/chat', [NotificationController::class, 'chat']);
     //TODO: To decide what kind of notification option we have
 
     /**
@@ -131,6 +132,8 @@ Route::prefix('v1')->group(function () {
         // Job request flow
         Route::post('/job-requests/match', [JobRequestController::class, 'createAndMatch']);
         Route::post('/job-requests/{jobRequest}/broadcast', [CustomerBroadcastController::class, 'broadcast']);
+
+        Route::post('/me/last-seen', [MeController::class, 'lastSeen']);
     });
 
 

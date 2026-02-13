@@ -10,28 +10,46 @@ class PushTokenController extends Controller
 {
     public function store(Request $request)
     {
+        $user = $request->user();
+
         $data = $request->validate([
             'token' => ['required', 'string', 'max:512'],
-            'platform' => ['nullable', 'string', 'max:20'],
+            'platform' => ['nullable', 'string', 'in:android,ios,web'],
             'device_id' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $user = $request->user();
-
-        // If token exists but belongs to another user, re-assign it
-        $pushToken = PushToken::updateOrCreate(
-            ['token' => $data['token']],
-            [
-                'user_id' => $user->id,
-                'platform' => $data['platform'] ?? null,
-                'device_id' => $data['device_id'] ?? null,
-                'last_seen_at' => now(),
-            ]
-        );
+        // Prefer: one row per (user + device_id)
+        if (!empty($data['device_id'])) {
+            $pushToken = PushToken::updateOrCreate(
+                ['user_id' => $user->id, 'device_id' => $data['device_id']],
+                [
+                    'token' => $data['token'],
+                    'platform' => $data['platform'] ?? null,
+                    'last_seen_at' => now(),
+                ]
+            );
+        } else {
+            // Fallback: token is unique anyway
+            $pushToken = PushToken::updateOrCreate(
+                ['token' => $data['token']],
+                [
+                    'user_id' => $user->id,
+                    'platform' => $data['platform'] ?? null,
+                    'device_id' => null,
+                    'last_seen_at' => now(),
+                ]
+            );
+        }
 
         return response()->json([
-            'ok' => true,
-            'id' => $pushToken->id,
-        ]);
+            'data' => [
+                'id' => $pushToken->id,
+                'user_id' => $pushToken->user_id,
+                'platform' => $pushToken->platform,
+                'device_id' => $pushToken->device_id,
+                'last_seen_at' => optional($pushToken->last_seen_at)->toISOString(),
+            ]
+        ], 201);
     }
+
 }

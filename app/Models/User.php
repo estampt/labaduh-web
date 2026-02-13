@@ -60,6 +60,7 @@ class User extends Authenticatable
         'is_verified' => 'boolean',
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
+        'last_seen_at' => 'datetime',
     ];
 
     public function vendor()
