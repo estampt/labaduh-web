@@ -66,4 +66,31 @@ class Order extends Model
         return $this->belongsTo(User::class, 'driver_id');
     }
 
+/*
+    protected static function booted(): void
+    {
+        static::updated(function (Order $order) {
+
+            // ✅ Use PHP error_log so it shows even when Laravel logs don't write
+            error_log("Order model updated: id={$order->id}, old={$order->getOriginal('status')}, new={$order->status}");
+
+            // Only if status changed
+            if (!$order->wasChanged('status')) return;
+
+            // Send push to customer
+            app(\App\Services\PushNotificationService::class)->sendToUser(
+                (int) $order->customer_id,
+                'Order Update',
+                "Your order is now {$order->status}.",
+                [
+                    'type' => 'order_update',
+                    'route' => "/c/orders/{$order->id}",
+                    'order_id' => (int) $order->id,
+                    'status' => (string) $order->status,
+                ]
+            );
+        });
+    }
+*/
+
 }

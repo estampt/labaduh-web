@@ -42,7 +42,7 @@ class VendorOrderStatusController extends Controller
             $vendor->id,
             [
                 'shop_id' => $shop->id,
-                'broadcast_id' => $broadcast->id,
+                //'broadcast_id' => $broadcast->id,
             ]
         );
         return response()->json(['data' => $order->fresh()]);
@@ -117,7 +117,7 @@ class VendorOrderStatusController extends Controller
             $vendor->id,
             [
                 'shop_id' => $shop->id,
-                'broadcast_id' => $broadcast->id,
+                //'broadcast_id' => $broadcast->id,
             ]
         );
       return response()->json(['data' => $order->fresh()]);
@@ -138,7 +138,7 @@ class VendorOrderStatusController extends Controller
             $vendor->id,
             [
                 'shop_id' => $shop->id,
-                'broadcast_id' => $broadcast->id,
+                //'broadcast_id' => $broadcast->id,
             ]
         );
 
@@ -157,7 +157,7 @@ class VendorOrderStatusController extends Controller
             $vendor->id,
             [
                 'shop_id' => $shop->id,
-                'broadcast_id' => $broadcast->id,
+                //'broadcast_id' => $broadcast->id,
             ]
         );
 
@@ -178,7 +178,7 @@ class VendorOrderStatusController extends Controller
             $vendor->id,
             [
                 'shop_id' => $shop->id,
-                'broadcast_id' => $broadcast->id,
+                ////'broadcast_id' => $broadcast->id,
             ]
         );
 
@@ -197,7 +197,7 @@ class VendorOrderStatusController extends Controller
             $vendor->id,
             [
                 'shop_id' => $shop->id,
-                'broadcast_id' => $broadcast->id,
+                //'broadcast_id' => $broadcast->id,
             ]
         );
 

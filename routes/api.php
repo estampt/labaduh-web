@@ -45,7 +45,12 @@ use App\Http\Controllers\Api\V1\AppSettingsController;
 use App\Http\Controllers\Api\V1\AppConfigController;
 use App\Http\Controllers\Api\V1\MeController;
 
+
+use App\Models\PushToken;
+
 Route::prefix('v1')->group(function () {
+
+
 
     /**
      * Public (no auth)
@@ -82,8 +87,6 @@ Route::prefix('v1')->group(function () {
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
 
-    // Push / notifications (keep public if you want — you can move under auth later)
-    Route::post('/push/token', [PushTokenController::class, 'store']);
 
     //Route::get('/notifications/ops', [NotificationController::class, 'ops']);
     //Route::get('/notifications/chat', [NotificationController::class, 'chat']);
@@ -134,6 +137,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/job-requests/{jobRequest}/broadcast', [CustomerBroadcastController::class, 'broadcast']);
 
         Route::post('/me/last-seen', [MeController::class, 'lastSeen']);
+
+        // Push / notifications (keep public if you want — you can move under auth later)
+        Route::post('/push/token', [PushTokenController::class, 'store']);
     });
 
 
@@ -266,9 +272,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/orders/{order}/mark-delivered', [VendorOrderStatusController::class, 'markDelivered']);
             Route::post('/orders/{order}/mark-completed', [VendorOrderStatusController::class, 'markCompleted']);
 
-            Route::post('/orders/{order}/mark-picked-up', [VendorOrderStatusController::class, 'markPickedUp']); // allowed if pickup_provider=vendor
-            Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']); // requires picked_up
-            Route::post('/orders/{order}/mark-ready', [VendorOrderStatusController::class, 'markReady']);
 
 
             //For repricing proposal

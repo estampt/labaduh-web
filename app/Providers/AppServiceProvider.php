@@ -6,6 +6,10 @@ use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
 use Illuminate\Support\ServiceProvider;
 
+
+use App\Models\Order;
+use App\Observers\OrderObserver;
+
 class AppServiceProvider extends ServiceProvider
 {
 
@@ -15,6 +19,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         //
+        Order::observe(OrderObserver::class);
     }
 
     public function register(): void
