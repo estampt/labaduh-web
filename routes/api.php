@@ -85,8 +85,8 @@ Route::prefix('v1')->group(function () {
     // Push / notifications (keep public if you want — you can move under auth later)
     Route::post('/push/token', [PushTokenController::class, 'store']);
 
-    Route::get('/notifications/ops', [NotificationController::class, 'ops']);
-    Route::get('/notifications/chat', [NotificationController::class, 'chat']);
+    //Route::get('/notifications/ops', [NotificationController::class, 'ops']);
+    //Route::get('/notifications/chat', [NotificationController::class, 'chat']);
     //TODO: To decide what kind of notification option we have
 
     /**

@@ -6,6 +6,7 @@ use App\Models\PushToken;
 use Illuminate\Support\Facades\DB;
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging;
+use Kreait\Firebase\Messaging\AndroidConfig;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
 
@@ -57,11 +58,44 @@ class PushNotificationService
         $notification = Notification::create($title, $body);
 
         foreach (array_chunk($tokens, 500) as $chunk) {
-            $message = CloudMessage::newest()
+            // NOTE: Kreait supports CloudMessage::new() (or CloudMessage::fromArray() in older versions).
+            // CloudMessage::newest() is not a valid constructor in most versions.
+            $message = CloudMessage::new()
                 ->withNotification($notification)
-                ->withData($this->stringifyData($data));
+                ->withData($this->stringifyData($data))
+                // Better delivery reliability when the app is backgrounded (especially Android)
+                ->withAndroidConfig(AndroidConfig::fromArray([
+                    'priority' => 'high',
+                ]));
 
-            $this->messaging->sendMulticast($message, $chunk);
+            $report = $this->messaging->sendMulticast($message, $chunk);
+
+            // Strongly recommended: prune invalid/unregistered tokens to prevent token rot.
+            // Wrapped in try/catch to remain compatible across firebase-php versions.
+            try {
+                $invalidTokens = [];
+
+                $failures = $report->failures();
+                $items = method_exists($failures, 'getItems') ? $failures->getItems() : $failures;
+
+                foreach ($items as $failure) {
+                    if (!method_exists($failure, 'target')) {
+                        continue;
+                    }
+
+                    $target = $failure->target();
+                    $token = method_exists($target, 'value') ? $target->value() : (string) $target;
+                    if ($token !== '') {
+                        $invalidTokens[] = $token;
+                    }
+                }
+
+                if (!empty($invalidTokens)) {
+                    PushToken::whereIn('token', array_values(array_unique($invalidTokens)))->delete();
+                }
+            } catch (\Throwable $e) {
+                // Don't break app flow if report parsing differs across versions.
+            }
         }
     }
 
