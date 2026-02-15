@@ -13,17 +13,18 @@ class OrderBroadcastService
 {
     public function __construct(
         private VendorMatchingService $matching,
-        private PushNotificationService $push, // ✅ add FCM service
+        private PushNotificationService $push,
     ) {}
 
     /**
-     * "Broadcast" = create job_offers + send FCM pushes to matched vendors (after commit).
+     * Broadcast = create job_offers + schedule FCM pushes.
      */
     public function broadcast(JobRequest $jr, int $topN = 5, int $ttlSeconds = 90): array
     {
         $jr->update(['assignment_status' => 'broadcasting']);
 
         $matches = $jr->match_snapshot;
+
         if (!$matches || !is_array($matches)) {
             $matches = $this->matching->match([
                 'pickup_lat' => $jr->pickup_lat,
@@ -44,7 +45,7 @@ class OrderBroadcastService
 
         return DB::transaction(function () use ($jr, $matches, $topN, $expiresAt) {
 
-            // ✅ Step 1A: cancel old active offers so rebroadcast is clean
+            // Cancel old offers before rebroadcast
             JobOffer::where('job_request_id', $jr->id)
                 ->whereIn('status', ['sent', 'seen'])
                 ->update(['status' => 'cancelled']);
@@ -52,34 +53,53 @@ class OrderBroadcastService
             $created = [];
 
             foreach (array_slice($matches, 0, $topN) as $m) {
+
                 $offer = JobOffer::updateOrCreate(
-                    ['job_request_id' => $jr->id, 'vendor_id' => $m['vendor_id']],
-                    ['shop_id' => $m['shop_id'], 'status' => 'sent', 'expires_at' => $expiresAt]
+                    [
+                        'job_request_id' => $jr->id,
+                        'vendor_id'      => $m['vendor_id'],
+                    ],
+                    [
+                        'shop_id'    => $m['shop_id'],
+                        'status'     => 'sent',
+                        'expires_at' => $expiresAt,
+                    ]
                 );
 
                 $created[] = $offer;
             }
 
+            // After DB commit → schedule pushes
             DB::afterCommit(function () use ($created) {
+
+                if (!filter_var(env('BROADCAST_PUSH_ENABLED', true), FILTER_VALIDATE_BOOLEAN)) {
+                    return;
+                }
 
                 $freeDelay    = (int) env('VENDOR_PUSH_DELAY_FREE_SECONDS', 300);
                 $premiumDelay = (int) env('VENDOR_PUSH_DELAY_PREMIUM_SECONDS', 0);
 
                 foreach ($created as $offer) {
 
+                    // Only push if still active
+                    if ($offer->status !== 'sent') {
+                        continue;
+                    }
+
                     $tier = Vendor::query()
                         ->where('id', (int) $offer->vendor_id)
                         ->value('subscription_tier');
 
-                    $tier = strtoupper((string) $tier);
+                    $tier = strtoupper((string) ($tier ?? 'FREE'));
 
-                    $delaySeconds = ($tier === 'PREMIUM') ? $premiumDelay : $freeDelay;
+                    $delaySeconds = ($tier === 'premium')
+                        ? $premiumDelay
+                        : $freeDelay;
 
                     SendJobOfferPushJob::dispatch((int) $offer->id)
                         ->delay(now()->addSeconds($delaySeconds));
                 }
             });
-
 
             return $created;
         });

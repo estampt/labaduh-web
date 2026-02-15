@@ -51,6 +51,13 @@ use App\Models\PushToken;
 Route::prefix('v1')->group(function () {
 
 
+ Route::get('/broadcast-run/{id}', function ($id) {
+            $job = new \App\Jobs\SendOrderBroadcastPushJob((int)$id);
+            $job->handle(app(\App\Services\PushNotificationService::class));
+
+            return response()->json(['ok' => true, 'ran' => (int)$id]);
+        });
+
 
     /**
      * Public (no auth)
@@ -58,6 +65,10 @@ Route::prefix('v1')->group(function () {
     Route::post('/webhooks/paymongo', [PaymentWebhookController::class, 'paymongo']);
 
     Route::prefix('auth')->group(function () {
+
+
+
+
         Route::post('/register', [AuthController::class, 'register']);
         Route::post('/login', [AuthController::class, 'login']);
 

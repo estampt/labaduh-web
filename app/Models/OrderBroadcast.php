@@ -3,19 +3,30 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OrderBroadcast extends Model
 {
     protected $fillable = [
-        'order_id','vendor_id','shop_id','status','quoted_total'
+        'order_id',
+        'shop_id',
+        'vendor_id',
+        'status',
+        'sent_at',
+        'expires_at',
     ];
 
-    public function order(): BelongsTo
+    protected $casts = [
+        'sent_at' => 'datetime',
+        'expires_at' => 'datetime',
+    ];
+
+    public function order()
     {
         return $this->belongsTo(Order::class);
     }
 
-    public function items() { return $this->hasMany(\App\Models\OrderItem::class); }
-
+    public function shop()
+    {
+        return $this->belongsTo(VendorShop::class, 'shop_id');
+    }
 }

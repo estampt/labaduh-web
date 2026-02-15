@@ -42,6 +42,10 @@ class Vendor extends Model
         // users.vendor_id -> vendors.id
         return $this->hasOne(\App\Models\User::class, 'vendor_id', 'id');
     }
+    public function vendor()
+    {
+        return $this->belongsTo(Vendor::class);
+    }
 
 
 }

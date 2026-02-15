@@ -428,7 +428,7 @@ class CustomerOrderController extends Controller
         $ranked = app(\App\Services\ShopMatchingService::class)
             ->matchForOrderBroadcast($order, $topN);
 
-                \Log::info('Broadcast: ranked result', [
+        \Log::info('Broadcast: ranked result', [
             'order_id' => $order->id,
             'count' => is_array($ranked) ? count($ranked) : null,
             'sample' => is_array($ranked) ? array_slice($ranked, 0, 3) : null,
@@ -442,7 +442,7 @@ class CustomerOrderController extends Controller
         $expiresAt = now()->addSeconds($ttlSeconds);
 
         foreach ($ranked as $entry) {
-            \App\Models\OrderBroadcast::updateOrCreate(
+            $broadcast = \App\Models\OrderBroadcast::updateOrCreate(
                 [
                     'order_id' => $order->id,
                     'shop_id'  => $entry['shop_id'],
@@ -451,11 +451,25 @@ class CustomerOrderController extends Controller
                     'vendor_id'       => $entry['vendor_id'],
                     'priority_score'  => $entry['priority_score'] ?? null,
                     'status'          => 'pending',
-                    'expires_at'      => $expiresAt, // remove if you don't have this column
+                    //'expires_at'      => $expiresAt,
                 ]
             );
+
+            /*// ✅ Dispatch push only if not already sent/accepted/expired
+            if (in_array($broadcast->status, ['pending'], true)) {
+                // If you're inside a DB transaction, prefer afterCommit()
+                \App\Jobs\SendOrderBroadcastPushJob::dispatch($broadcast->id);
+            }*/
+
+            // ✅ Only send push if this row was just created OR still pending
+            if ($broadcast->wasRecentlyCreated || $broadcast->status === 'pending') {
+
+                \App\Jobs\SendOrderBroadcastPushJob::dispatch($broadcast->id);
+
+            }
         }
     }
+
 
     public function confirmDelivery(Request $request, Order $order)
     {

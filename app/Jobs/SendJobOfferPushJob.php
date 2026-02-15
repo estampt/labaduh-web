@@ -69,9 +69,11 @@ class SendJobOfferPushJob implements ShouldQueue
             'You received a new job offer. Tap to view.',
             [
                 'type' => 'job_offer',
+                'route' => '/v/job-offers',   // ✅ ADD THIS
                 'job_request_id' => (int) $offer->job_request_id,
                 'job_offer_id' => (int) $offer->id,
             ]
         );
+
     }
 }
