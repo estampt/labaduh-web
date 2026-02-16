@@ -114,7 +114,7 @@ class PushNotificationService
 
                 if (!empty($invalidTokens)) {
                     //TODO: Check if need to delete tokens or not
-                    //PushToken::whereIn('token', array_values(array_unique($invalidTokens)))->delete();
+                    PushToken::whereIn('token', array_values(array_unique($invalidTokens)))->delete();
                 }
             } catch (\Throwable $e) {
                 // Don't break app flow if report parsing differs across versions.

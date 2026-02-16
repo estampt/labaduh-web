@@ -11,6 +11,7 @@ class PushToken extends Model
         'token',
         'platform',
         'device_id',
+        'active_shop_id',
         'last_seen_at',
     ];
 }
