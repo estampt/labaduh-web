@@ -31,6 +31,50 @@ class PushNotificationService
         $this->sendToTokens($tokens, $title, $body, $data);
     }
 
+    public function sendToSpecificShop(
+        int $userId,
+        int $shopId,
+        string $title,
+        string $body,
+        array $data = []
+    ): void {
+
+        \Log::info('🟡 sendToSpecificShop', [
+            'user_id' => $userId,
+            'shop_id' => $shopId,
+            'title' => $title,
+        ]);
+
+        $tokens = PushToken::where('user_id', $userId)
+            ->where(fn($q) =>
+                $q->where('active_shop_id', $shopId)
+                  ->orWhereNull('active_shop_id')
+            )
+            ->pluck('token')
+            ->values()
+            ->all();
+
+        \Log::info('🟡 tokens resolved', [
+            'count' => count($tokens),
+        ]);
+
+        if (empty($tokens)) {
+            \Log::warning('🔴 no tokens found', [
+                'user_id' => $userId,
+                'shop_id' => $shopId,
+            ]);
+            return;
+        }
+
+        $this->sendToTokens($tokens, $title, $body, $data);
+
+        \Log::info('🟢 sendToSpecificShop dispatched', [
+            'tokens_count' => count($tokens),
+        ]);
+    }
+
+
+
     public function sendToRole(string $role, string $title, string $body, array $data = []): void
     {
         $tokens = DB::table('push_tokens')

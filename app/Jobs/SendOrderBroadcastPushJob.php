@@ -48,7 +48,7 @@ class SendOrderBroadcastPushJob implements ShouldQueue
             'order_id' => $b->order_id,
             'vendor_user_id' => $vendorUser->id,
         ]);
-
+/*
         $push->sendToUser(
             $vendorUser->id,
             'New Laundry Order',
@@ -59,8 +59,35 @@ class SendOrderBroadcastPushJob implements ShouldQueue
                 'order_broadcast_id' => $b->id,
                 'shop_id' => $b->shop_id,
             ]
+        );*/
+
+
+        //Broadcast to specific shop
+        $push->sendToSpecificShop(
+            $vendorUser->id,
+            $b->shop_id,
+            'New Laundry Order',
+            'You received a new order request. Tap to view.',
+            [
+                'type' => 'order_broadcast',
+                'order_id' => $b->order_id,
+                'order_broadcast_id' => $b->id,
+                'shop_id' => $b->shop_id,
+            ]
         );
 
+        /*$push->sendToUser(
+            $vendorUser->id,
+            'New Laundry Order',
+            'You received a new order request. Tap to view.',
+            [
+                'type' => 'order_broadcast',
+                'order_id' => $b->order_id,
+                'order_broadcast_id' => $b->id,
+                'shop_id' => $b->shop_id,
+            ]
+        );
+        */
          $ok = $b->forceFill(['status' => 'sent'])->save();  // ✅ important change
         \Log::info('JOB UPDATE status->sent', ['id' => $b->id, 'ok' => $ok, 'status_now' => $b->fresh()->status]);
 
