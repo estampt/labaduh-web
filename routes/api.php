@@ -276,12 +276,14 @@ Route::prefix('v1')->group(function () {
             Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
 
             // Vendor order status actions
-            Route::post('/orders/{order}/mark-picked-up', [VendorOrderStatusController::class, 'markPickedUp']);
+
+            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderStatusController::class, 'pickupScheduled']);
+            Route::post('/orders/{order}/picked-up', [VendorOrderStatusController::class, 'markPickedUp']);
             Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']);
-            Route::post('/orders/{order}/mark-ready', [VendorOrderStatusController::class, 'markReady']);
+            Route::post('/orders/{order}/ready', [VendorOrderStatusController::class, 'markReady']);
             Route::post('/orders/{order}/picked-up-from-shop', [VendorOrderStatusController::class, 'pickedUpFromShop']);
-            Route::post('/orders/{order}/mark-delivered', [VendorOrderStatusController::class, 'markDelivered']);
-            Route::post('/orders/{order}/mark-completed', [VendorOrderStatusController::class, 'markCompleted']);
+            Route::post('/orders/{order}/delivered', [VendorOrderStatusController::class, 'markDelivered']);
+            Route::post('/orders/{order}/completed', [VendorOrderStatusController::class, 'markCompleted']);
 
 
 

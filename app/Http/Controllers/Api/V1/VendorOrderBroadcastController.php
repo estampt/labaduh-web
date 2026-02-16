@@ -44,7 +44,7 @@ class VendorOrderBroadcastController extends Controller
         DB::transaction(function () use ($order, $broadcast, $vendor, $shop) {
             // claim the order
             $order->update([
-                'status' => OrderTimelineKeys::PICKUP_SCHEDULED,
+                'status' => OrderTimelineKeys::ORDER_ACCEPTED,
                 'accepted_vendor_id' => $vendor->id,
                 'accepted_shop_id' => $shop->id,
             ]);
@@ -52,7 +52,7 @@ class VendorOrderBroadcastController extends Controller
             // 🔹 STEP 6: record customer timeline event
             app(OrderTimelineRecorder::class)->record(
                 $order,
-                OrderTimelineKeys::PICKUP_SCHEDULED,
+                OrderTimelineKeys::ORDER_ACCEPTED,
                 'vendor',
                 $vendor->id,
                 [

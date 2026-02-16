@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\User;
+use App\Observers\OrderObserver;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -67,6 +68,11 @@ class Order extends Model
     }
 
 /*
+    protected static function booted(): void
+    {
+        static::observe(OrderObserver::class);
+    }
+
     protected static function booted(): void
     {
         static::updated(function (Order $order) {

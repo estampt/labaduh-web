@@ -35,6 +35,7 @@ class OrderObserver
             ]
         );
 
+        /*
         // ✅ NEW: Notify Vendor when customer marks delivered/completed
         if (in_array($status, ['delivered', 'completed'], true)) {
 
@@ -81,6 +82,6 @@ class OrderObserver
                     'status' => $status,
                 ]
             );
-        }
+        } */
     }
 }

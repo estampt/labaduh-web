@@ -68,8 +68,30 @@ class PushNotificationService
                     'priority' => 'high',
                 ]));
 
-            $report = $this->messaging->sendMulticast($message, $chunk);
+            try {
+                $report = $this->messaging->sendMulticast($message, $chunk);
 
+                \Log::info('FCM multicast result', [
+                    'success' => $report->successes()->count(),
+                    'failure' => $report->failures()->count(),
+                ]);
+            } catch (\Throwable $e) {
+                \Log::error('FCM send failed', [
+                    'message' => $e->getMessage(),
+                ]);
+            }
+
+            \Log::info('FCM multicast result', [
+                'success' => $report->successes()->count(),
+                'failure' => $report->failures()->count(),
+            ]);
+
+            foreach ($report->failures()->getItems() as $failure) {
+                \Log::warning('FCM failure detail', [
+                    'token' => $failure->target()->value(),
+                    'error' => $failure->error()->getMessage(),
+                ]);
+            }
             // Strongly recommended: prune invalid/unregistered tokens to prevent token rot.
             // Wrapped in try/catch to remain compatible across firebase-php versions.
             try {
@@ -91,7 +113,8 @@ class PushNotificationService
                 }
 
                 if (!empty($invalidTokens)) {
-                    PushToken::whereIn('token', array_values(array_unique($invalidTokens)))->delete();
+                    //TODO: Check if need to delete tokens or not
+                    //PushToken::whereIn('token', array_values(array_unique($invalidTokens)))->delete();
                 }
             } catch (\Throwable $e) {
                 // Don't break app flow if report parsing differs across versions.

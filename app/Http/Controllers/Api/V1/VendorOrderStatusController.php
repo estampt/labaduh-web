@@ -23,8 +23,23 @@ class VendorOrderStatusController extends Controller
 
     private function transition(Order $order, string $from, string $to): void
     {
-        abort_unless($order->status === $from, 409, "Invalid status transition: {$order->status} -> {$to}");
-        $order->update(['status' => $to]);
+        abort_unless(
+            $order->status === $from,
+            409,
+            "Invalid status transition: {$order->status} -> {$to}"
+        );
+
+        // ✅ Set attribute directly
+        $order->status = $to;
+
+        // ✅ Save triggers model events + observers reliably
+        $order->save();
+
+         \Log::info('Order status transitioned', [
+            'order_id' => $order->id,
+            'from' => $from,
+            'to' => $to,
+        ]);
     }
 
 
@@ -33,7 +48,9 @@ class VendorOrderStatusController extends Controller
         $this->ensureOrderBelongsToShop($order, $shop);
         $this->canVendorMarkPickedUp($order);
 
-        $this->transition($order, OrderTimelineKeys::ORDER_CREATED, OrderTimelineKeys::PICKUP_SCHEDULED);
+         abort_unless(in_array($order->status, [OrderTimelineKeys::ORDER_ACCEPTED], true), 409, 'invalid status for pick-up scheduled: '.$order->status);
+
+        $this->transition($order, OrderTimelineKeys::ORDER_ACCEPTED, OrderTimelineKeys::PICKUP_SCHEDULED);
 
         app(OrderTimelineRecorder::class)->record(
             $order,

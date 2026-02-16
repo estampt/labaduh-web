@@ -7,6 +7,7 @@ final class OrderTimelineKeys
 {
     public const ORDER_CREATED    = 'order_created';
     public const PUBLISHED        = 'published';
+    public const ORDER_ACCEPTED    = 'order_accepted';
     public const PICKUP_SCHEDULED = 'pickup_scheduled';
     public const PICKED_UP        = 'picked_up';
     public const WASHING          = 'washing';
@@ -20,6 +21,7 @@ final class OrderTimelineKeys
         return [
             self::ORDER_CREATED,
             self::PUBLISHED,
+            self::ORDER_ACCEPTED,
             self::PICKUP_SCHEDULED,
             self::PICKED_UP,
             self::WASHING,
