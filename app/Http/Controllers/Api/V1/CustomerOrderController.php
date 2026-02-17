@@ -270,7 +270,7 @@ class CustomerOrderController extends Controller
 
             app(OrderTimelineRecorder::class)->record(
                 $order,
-                OrderTimelineKeys::ORDER_CREATED,
+                OrderTimelineKeys::CREATED,
                 'customer',
                 auth()->id()
             );

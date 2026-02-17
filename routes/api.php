@@ -277,18 +277,35 @@ Route::prefix('v1')->group(function () {
 
             // Vendor order status actions
 
-            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderStatusController::class, 'pickupScheduled']);
+/*            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderStatusController::class, 'pickupScheduled']);
             Route::post('/orders/{order}/picked-up', [VendorOrderStatusController::class, 'markPickedUp']);
             Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']);
             Route::post('/orders/{order}/ready', [VendorOrderStatusController::class, 'markReady']);
             Route::post('/orders/{order}/picked-up-from-shop', [VendorOrderStatusController::class, 'pickedUpFromShop']);
             Route::post('/orders/{order}/delivered', [VendorOrderStatusController::class, 'markDelivered']);
             Route::post('/orders/{order}/completed', [VendorOrderStatusController::class, 'markCompleted']);
+*/
+            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderStatusController::class, 'pickupScheduled']);
+            Route::post('/orders/{order}/picked-up', [VendorOrderStatusController::class, 'pickedUp']);
+
+            // ✅ Weight flow
+            Route::post('/orders/{order}/weight-reviewed', [VendorOrderStatusController::class, 'weightReviewed']);
+            Route::post('/orders/{order}/weight-accepted', [VendorOrderStatusController::class, 'weightAccepted']);
+
+            Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']);
+            Route::post('/orders/{order}/ready', [VendorOrderStatusController::class, 'ready']);
+
+            // ✅ Delivery flow
+            Route::post('/orders/{order}/delivery-scheduled', [VendorOrderStatusController::class, 'deliveryScheduled']);
+            Route::post('/orders/{order}/out-for-delivery', [VendorOrderStatusController::class, 'outForDelivery']);
+
+            Route::post('/orders/{order}/delivered', [VendorOrderStatusController::class, 'delivered']);
+            Route::post('/orders/{order}/completed', [VendorOrderStatusController::class, 'completed']);
 
 
-
-            //For repricing proposal
+            // ✅ Repricing proposal
             Route::post('/orders/{order}/propose-final', [VendorOrderPricingController::class, 'proposeFinal']);
+
 
 
             //TODO : For 3rd party driver
