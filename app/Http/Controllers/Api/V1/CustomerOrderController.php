@@ -470,6 +470,54 @@ class CustomerOrderController extends Controller
         }
     }
 
+    public function cancelOrder(Request $request, Order $order)
+    {
+        $user = $request->user();
+
+        // ✅ Security: only the owner customer can cancel
+        if ((int) $order->customer_id !== (int) $user->id) {
+            return response()->json(['message' => 'Forbidden.'], 403);
+        }
+
+        // ✅ Idempotent: if already canceled, just return
+        if (($order->status ?? null) === 'canceled') {
+            return response()->json(['data' => $order->fresh()]);
+        }
+
+        // ✅ Only allow cancel when status is created or published
+        $allowedStatuses = ['created', 'published'];
+        if (!in_array($order->status, $allowedStatuses, true)) {
+            return response()->json([
+                'message' => "Cannot cancel unless status is: " . implode(', ', $allowedStatuses),
+                'status' => $order->status,
+            ], 422);
+        }
+
+        // ✅ Transition created/published -> canceled
+        // If your transition() requires exact "from", handle both safely:
+        if ($order->status === OrderTimelineKeys::CREATED) {
+            $this->transition($order, OrderTimelineKeys::CREATED, OrderTimelineKeys::CANCELED);
+        } else {
+            $this->transition($order, OrderTimelineKeys::PUBLISHED, OrderTimelineKeys::CANCELED);
+        }
+
+        // ✅ Record timeline as customer cancellation
+        app(OrderTimelineRecorder::class)->record(
+            $order,
+            OrderTimelineKeys::CANCELED,
+            'customer',
+            $user->id,
+            [
+                'shop_id' => $order->shop_id ?? null,
+                'order_id' => $order->id,
+                'previous_status' => $order->getOriginal('status'), // optional but useful
+            ]
+        );
+
+        return response()->json(['data' => $order->fresh()]);
+    }
+
+
 
     public function confirmDelivery(Request $request, Order $order)
     {

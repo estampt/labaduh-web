@@ -181,6 +181,8 @@ Route::prefix('v1')->group(function () {
             Route::post('orders/{order}/approve-final', [CustomerOrderPricingController::class, 'approveFinal']);
             Route::post('orders/{order}/reject-final', [CustomerOrderPricingController::class, 'rejectFinal']);
 
+            Route::post('/orders/{order}/cancel', [CustomerOrderController::class, 'cancelOrder']);
+
             Route::post('/orders/{order}/confirm-delivery', [CustomerOrderController::class, 'confirmDelivery']);
             Route::post('/orders/{order}/feedback', [CustomerOrderController::class, 'feedback']);
 
@@ -277,14 +279,6 @@ Route::prefix('v1')->group(function () {
 
             // Vendor order status actions
 
-/*            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderStatusController::class, 'pickupScheduled']);
-            Route::post('/orders/{order}/picked-up', [VendorOrderStatusController::class, 'markPickedUp']);
-            Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']);
-            Route::post('/orders/{order}/ready', [VendorOrderStatusController::class, 'markReady']);
-            Route::post('/orders/{order}/picked-up-from-shop', [VendorOrderStatusController::class, 'pickedUpFromShop']);
-            Route::post('/orders/{order}/delivered', [VendorOrderStatusController::class, 'markDelivered']);
-            Route::post('/orders/{order}/completed', [VendorOrderStatusController::class, 'markCompleted']);
-*/
             Route::post('/orders/{order}/pickup-scheduled', [VendorOrderStatusController::class, 'pickupScheduled']);
             Route::post('/orders/{order}/picked-up', [VendorOrderStatusController::class, 'pickedUp']);
 
