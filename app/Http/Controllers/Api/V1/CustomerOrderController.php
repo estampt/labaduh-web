@@ -76,84 +76,84 @@ class CustomerOrderController extends Controller
     |--------------------------------------------------------------------------
     */
     public function latest(Request $request)
-{
-    $user = $request->user();
-    $perPage = (int) ($request->get('per_page', 10));
+    {
+        $user = $request->user();
+        $perPage = (int) ($request->get('per_page', 10));
 
-    $orders = Order::query()
-        ->select('orders.*')
-        ->where('customer_id', $user->id)
-        ->whereNotIn('status', $this->closedStatuses())
-        ->with([
-            'acceptedShop' => function ($q) {
-                $q->select([
+        $orders = Order::query()
+            ->select('orders.*')
+            ->where('customer_id', $user->id)
+            ->whereNotIn('status', $this->closedStatuses())
+            ->with([
+                'acceptedShop' => function ($q) {
+                    $q->select([
+                            'id',
+                            'name',
+                            'profile_photo_url',
+                            'latitude',
+                            'longitude',
+                        ])
+                        ->addSelect([
+                            'avg_rating' => DB::table('order_feedbacks')
+                                ->selectRaw('AVG(rating)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                            'ratings_count' => DB::table('order_feedbacks')
+                                ->selectRaw('COUNT(*)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                        ]);
+                },
+
+                // ✅ order_items snapshot only (no services table)
+                'items' => function ($q) {
+                    $q->select([
                         'id',
-                        'name',
-                        'profile_photo_url',
-                        'latitude',
-                        'longitude',
-                    ])
-                    ->addSelect([
-                        'avg_rating' => DB::table('order_feedbacks')
-                            ->selectRaw('AVG(rating)')
-                            ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
-                        'ratings_count' => DB::table('order_feedbacks')
-                            ->selectRaw('COUNT(*)')
-                            ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
-                    ]);
-            },
+                        'order_id',
+                        'service_id', // keep if you store it, but no joins will happen
+                        'service_name',
+                        'service_description',
+                        'qty',
+                        'qty_estimated',
+                        'qty_actual',
+                        'uom',
+                        'pricing_model',
+                        'minimum',
+                        'min_price',
+                        'price_per_uom',
+                        'computed_price',
+                        'estimated_price',
+                        'final_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
 
-            // ✅ order_items snapshot only (no services table)
-            'items' => function ($q) {
-                $q->select([
-                    'id',
-                    'order_id',
-                    'service_id', // keep if you store it, but no joins will happen
-                    'service_name',
-                    'service_description',
-                    'qty',
-                    'qty_estimated',
-                    'qty_actual',
-                    'uom',
-                    'pricing_model',
-                    'minimum',
-                    'min_price',
-                    'price_per_uom',
-                    'computed_price',
-                    'estimated_price',
-                    'final_price',
-                    'created_at',
-                    'updated_at',
-                ])->orderBy('id');
-            },
+                // ✅ order_item_options snapshot only (no service_options table)
+                'items.options' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_item_id',
+                        'service_option_id', // keep if you store it, but no joins will happen
+                        'service_option_name',
+                        'service_option_description',
+                        'price',
+                        'is_required',
+                        'computed_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
+            ])
+            ->orderByDesc('created_at')
+            ->cursorPaginate($perPage);
 
-            // ✅ order_item_options snapshot only (no service_options table)
-            'items.options' => function ($q) {
-                $q->select([
-                    'id',
-                    'order_item_id',
-                    'service_option_id', // keep if you store it, but no joins will happen
-                    'service_option_name',
-                    'service_option_description',
-                    'price',
-                    'is_required',
-                    'computed_price',
-                    'created_at',
-                    'updated_at',
-                ])->orderBy('id');
-            },
-        ])
-        ->orderByDesc('created_at')
-        ->cursorPaginate($perPage);
+        $data = $orders->getCollection()
+            ->map(fn ($order) => $this->transformFromShow($order));
 
-    $data = $orders->getCollection()
-        ->map(fn ($order) => $this->transformFromShow($order));
-
-    return response()->json([
-        'data' => $data,
-        'cursor' => $orders->nextCursor()?->encode(),
-    ]);
-}
+        return response()->json([
+            'data' => $data,
+            'cursor' => $orders->nextCursor()?->encode(),
+        ]);
+    }
 
 
 
