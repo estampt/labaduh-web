@@ -78,7 +78,7 @@ class CustomerOrderController extends Controller
     public function latest(Request $request)
 {
     $user = $request->user();
-    $perPage = (int) ($request->get('per_page', 5));
+    $perPage = (int) ($request->get('per_page', 10));
 
     $orders = Order::query()
         ->select('orders.*')

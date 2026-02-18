@@ -61,22 +61,22 @@ class VendorOrderController extends Controller
     }
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | ORDERS BY SHOP — Active / Non-closed orders per vendor shop
-    |--------------------------------------------------------------------------
-    */
     public function getActiveOrderbyShop(Request $request, int $shopId)
     {
-
         $perPage = (int) ($request->get('per_page', 5));
 
         $orders = Order::query()
-            ->select('orders.*')
+            ->select([
+                'orders.*',
+                'orders.subtotal',
+                'orders.delivery_fee',
+                'orders.service_fee',
+                'orders.discount',
+            ])
             ->where('accepted_shop_id', $shopId)
-            ->where('status', '!=', 'archived') // adjust if you have more closed statuses
+            ->where('status', '!=', 'archived')
             ->with([
-                'customer:id,name,address_line1,address_line2,postal_code,latitude,longitude',
+                'customer:id,name,profile_photo_url,address_line1,address_line2,postal_code,latitude,longitude',
                 'acceptedShop' => function ($q) {
                     $q->select([
                             'id',
@@ -94,11 +94,46 @@ class VendorOrderController extends Controller
                                 ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
                         ]);
                 },
-                'items.service:id,name,description',
-                'items.options.serviceOption:id,name,description',
+
+                'items' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_id',
+                        'service_id',
+                        'service_name',
+                        'qty',
+                        'qty_estimated',
+                        'qty_actual',
+                        'uom',
+                        'pricing_model',
+                        'minimum',
+                        'min_price',
+                        'price_per_uom',
+                        'computed_price',
+                        'estimated_price',
+                        'final_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
+
+                'items.options' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_item_id',
+                        'service_option_id',
+                        'service_option_name',
+                        'price',
+                        'is_required',
+                        'computed_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
             ])
             ->orderByDesc('created_at')
             ->cursorPaginate($perPage);
+
 
         $data = collect($orders->items())
             ->map(fn (Order $order) => $this->transformOrderForVendor($order, $shopId))
@@ -110,19 +145,17 @@ class VendorOrderController extends Controller
         ]);
     }
 
-     /**
-     * Transform an Order into the vendor-facing JSON shape.
-     * Keep this inside the same controller (as you requested).
-     */
     protected function transformOrderForVendor(Order $order, int $shopId): array
     {
-        // Helpful computed summaries for UI
         $items = $order->items ?? collect();
 
         $itemsCount = $items->count();
+
         $servicesSummary = $items
-            ->pluck('service.name')
+            ->pluck('service_name')
             ->filter()
+            ->map(fn ($s) => trim((string) $s))
+            ->filter(fn ($s) => $s !== '')
             ->unique()
             ->values()
             ->all();
@@ -132,8 +165,11 @@ class VendorOrderController extends Controller
             'status' => $order->status,
             'created_at' => optional($order->created_at)?->toISOString(),
             'updated_at' => optional($order->updated_at)?->toISOString(),
-
-            // Shop context
+                // ✅ totals from orders table
+            'subtotal' => $order->subtotal,
+            'delivery_fee' => $order->delivery_fee,
+            'service_fee' => $order->service_fee,
+            'discount' => $order->discount,
             'shop_id' => $shopId,
             'accepted_shop' => $order->acceptedShop ? [
                 'id' => $order->acceptedShop->id,
@@ -145,49 +181,73 @@ class VendorOrderController extends Controller
                 'ratings_count' => $order->acceptedShop->ratings_count,
             ] : null,
 
-            // Customer
             'customer' => $order->customer ? [
                 'id' => $order->customer->id,
                 'name' => $order->customer->name,
-                // 'profile_photo_url' => $order->customer->profile_photo_url, // enable after migration
+                'profile_photo_url' => $order->customer->profile_photo_url,
+                'address_line1' => $order->customer->address_line1,
+                'address_line2' => $order->customer->address_line2,
+                'postal_code' => $order->customer->postal_code,
+                'latitude' => $order->customer->latitude,
+                'longitude' => $order->customer->longitude,
             ] : null,
 
-            // Quick UI helpers
             'items_count' => $itemsCount,
             'services' => $servicesSummary,
 
-            // Full items (vendor needs to see services + options)
             'items' => $items->map(function ($item) {
                 return [
                     'id' => $item->id,
-                    'quantity' => $item->quantity ?? 1,
 
-                    'service' => $item->service ? [
-                        'id' => $item->service->id,
-                        'name' => $item->service->name,
-                        'description' => $item->service->description,
-                    ] : null,
+                    // qty fields
+                    'qty' => $item->qty,
+                    'qty_estimated' => $item->qty_estimated,
+                    'qty_actual' => $item->qty_actual,
+                    'uom' => $item->uom,
 
+                    // pricing fields
+                    'pricing_model' => $item->pricing_model,
+                    'minimum' => $item->minimum,
+                    'min_price' => $item->min_price,
+                    'price_per_uom' => $item->price_per_uom,
+
+                    'computed_price' => $item->computed_price,
+                    'estimated_price' => $item->estimated_price,
+                    'final_price' => $item->final_price,
+
+                    // service snapshot
+                    'service' => [
+                        'id' => $item->service_id,
+                        'name' => $item->service_name,
+//TODO To dispaly description or not
+//                        'description' => $item->service_description,
+                    ],
+
+                    // options snapshot + pricing
                     'options' => ($item->options ?? collect())->map(function ($opt) {
                         return [
                             'id' => $opt->id,
-                            'qty' => $opt->qty ?? 1,
-                            'service_option' => $opt->serviceOption ? [
-                                'id' => $opt->serviceOption->id,
-                                'name' => $opt->serviceOption->name,
-                                'description' => $opt->serviceOption->description,
-                            ] : null,
+                            'service_option_id' => $opt->service_option_id,
+
+                            'qty' => $opt->qty,
+                            'price' => $opt->price,
+                            'is_required' => (bool) $opt->is_required,
+                            'computed_price' => $opt->computed_price,
+
+                            'service_option' => [
+                                'id' => $opt->service_option_id,
+                                'name' => $opt->service_option_name,
+ //TODO To dispaly description or not
+//                               'description' => $opt->service_option_description,
+                            ],
                         ];
                     })->values()->all(),
                 ];
             })->values()->all(),
-
-            // If you have money fields, you can include them here safely:
-            // 'subtotal' => $order->subtotal,
-            // 'delivery_fee' => $order->delivery_fee,
-            // 'total' => $order->total,
         ];
     }
+
+
     // -----------------------
     // PICKUP FLOW
     // -----------------------
