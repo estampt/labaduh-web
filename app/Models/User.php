@@ -11,10 +11,18 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
+    protected $appends = ['profile_photo_full_url'];
+
+    public function getProfilePhotoFullUrlAttribute()
+    {
+        return $this->profile_photo_url
+            ? asset($this->profile_photo_url)
+            : null;
+    }
+
     protected $fillable = [
         'name',
         'email',
-        'password',
 
         'role',
         'vendor_id',

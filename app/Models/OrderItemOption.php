@@ -2,14 +2,22 @@
 
 namespace App\Models;
 
-    use App\Models\ServiceOption;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OrderItemOption extends Model
 {
     protected $fillable = [
-        'order_item_id','service_option_id','price','is_required','computed_price'
+        'order_item_id',
+        'service_option_id',
+
+        // ✅ snapshot fields (new)
+        'service_option_name',
+        'service_option_description',
+
+        'price',
+        'is_required',
+        'computed_price',
     ];
 
     protected $casts = [
@@ -21,10 +29,5 @@ class OrderItemOption extends Model
         return $this->belongsTo(OrderItem::class, 'order_item_id');
     }
 
-
-    public function serviceOption()
-    {
-        return $this->belongsTo(ServiceOption::class, 'service_option_id');
-    }
-
+    // ❌ removed: serviceOption() relationship
 }

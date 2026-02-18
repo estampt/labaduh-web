@@ -3,14 +3,25 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class OrderItem extends Model
 {
     protected $fillable = [
-        'order_id','service_id','qty','uom',
-        'pricing_model','minimum','min_price','price_per_uom',
+        'order_id',
+        'service_id',
+
+        // ✅ snapshot fields (new)
+        'service_name',
+        'service_description',
+
+        'qty',
+        'uom',
+        'pricing_model',
+        'minimum',
+        'min_price',
+        'price_per_uom',
         'computed_price',
     ];
 
@@ -25,10 +36,8 @@ class OrderItem extends Model
 
     public function options(): HasMany
     {
-        return $this->hasMany(OrderItemOption::class);
+        return $this->hasMany(OrderItemOption::class, 'order_item_id');
     }
-    public function service()
-{
-    return $this->belongsTo(Service::class, 'service_id');
-}
+
+    // ❌ removed: service() relationship
 }

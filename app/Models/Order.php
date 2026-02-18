@@ -67,6 +67,10 @@ class Order extends Model
         return $this->belongsTo(User::class, 'driver_id');
     }
 
+    public function customer()
+    {
+        return $this->belongsTo(User::class, 'customer_id');
+    }
 /*
     protected static function booted(): void
     {

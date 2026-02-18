@@ -29,7 +29,7 @@ use App\Http\Controllers\Api\V1\CustomerQuoteController;
 use App\Http\Controllers\Api\V1\CustomerOrderController;
 use App\Http\Controllers\Api\V1\CustomerOrderTimelineController;
 use App\Http\Controllers\Api\V1\VendorOrderPricingController;
-use App\Http\Controllers\Api\V1\VendorOrderStatusController;
+use App\Http\Controllers\Api\V1\VendorOrderController;
 use App\Http\Controllers\Api\V1\VendorOrderBroadcastController;
 
 use App\Http\Controllers\Api\V1\AdminAddonController;
@@ -171,11 +171,11 @@ Route::prefix('v1')->group(function () {
             //Customer Timeline
             //Route::get('orders/{order}/timeline', [CustomerOrderTimelineController::class, 'show']);
 
-            //Cancel Order
+
+            Route::post('orders', [CustomerOrderController::class, 'store']);
 
             Route::get('discovery/services', CustomerDiscoveryServiceController::class);
             Route::post('quotes', [CustomerQuoteController::class, 'store']);
-            Route::post('orders', [CustomerOrderController::class, 'store']);
             Route::get('orders/{order}', [CustomerOrderController::class, 'show']);
 
             Route::post('orders/{order}/approve-final', [CustomerOrderPricingController::class, 'approveFinal']);
@@ -237,24 +237,6 @@ Route::prefix('v1')->group(function () {
          */
         Route::prefix('/vendors/{vendor}/shops/{shop}')->middleware(['vendor_owns_vendor', 'vendor_owns_shop'])->group(function () {
 
-
-            // Service prices
-            /*
-            Route::get('/service-prices', [VendorShopServicePriceController::class, 'index']);
-            Route::post('/service-prices', [VendorShopServicePriceController::class, 'store']);
-            Route::put('/service-prices/{price}', [VendorShopServicePriceController::class, 'update']);
-            Route::delete('/service-prices/{price}', [VendorShopServicePriceController::class, 'destroy']);
-            Route::patch('/service-prices/{price}/toggle', [VendorShopServicePriceController::class, 'toggle']);
-
-
-            // Option prices
-            Route::get('/option-prices', [VendorServiceOptionPriceController::class, 'index']);
-            Route::post('/option-prices', [VendorServiceOptionPriceController::class, 'store']);
-            Route::put('/option-prices/{optionPrice}', [VendorServiceOptionPriceController::class, 'update']);
-            Route::delete('/option-prices/{optionPrice}', [VendorServiceOptionPriceController::class, 'destroy']);
-
-   */
-
             //Added by Rehnee on 31-Jan-2026
             //New Services Model
             Route::get   ('services',               [ShopServiceController::class, 'index']);
@@ -277,24 +259,28 @@ Route::prefix('v1')->group(function () {
             // Accept a broadcast (claim the order)
             Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
 
-            // Vendor order status actions
 
-            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderStatusController::class, 'pickupScheduled']);
-            Route::post('/orders/{order}/picked-up', [VendorOrderStatusController::class, 'pickedUp']);
+
+            Route::get('/orders', [VendorOrderController::class, 'getActiveOrderbyShop']);
+
+
+            // Vendor order status actions
+            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderController::class, 'pickupScheduled']);
+            Route::post('/orders/{order}/picked-up', [VendorOrderController::class, 'pickedUp']);
 
             // ✅ Weight flow
-            Route::post('/orders/{order}/weight-reviewed', [VendorOrderStatusController::class, 'weightReviewed']);
-            Route::post('/orders/{order}/weight-accepted', [VendorOrderStatusController::class, 'weightAccepted']);
+            Route::post('/orders/{order}/weight-reviewed', [VendorOrderController::class, 'weightReviewed']);
+            Route::post('/orders/{order}/weight-accepted', [VendorOrderController::class, 'weightAccepted']);
 
-            Route::post('/orders/{order}/start-washing', [VendorOrderStatusController::class, 'startWashing']);
-            Route::post('/orders/{order}/ready', [VendorOrderStatusController::class, 'ready']);
+            Route::post('/orders/{order}/start-washing', [VendorOrderController::class, 'startWashing']);
+            Route::post('/orders/{order}/ready', [VendorOrderController::class, 'ready']);
 
             // ✅ Delivery flow
-            Route::post('/orders/{order}/delivery-scheduled', [VendorOrderStatusController::class, 'deliveryScheduled']);
-            Route::post('/orders/{order}/out-for-delivery', [VendorOrderStatusController::class, 'outForDelivery']);
+            Route::post('/orders/{order}/delivery-scheduled', [VendorOrderController::class, 'deliveryScheduled']);
+            Route::post('/orders/{order}/out-for-delivery', [VendorOrderController::class, 'outForDelivery']);
 
-            Route::post('/orders/{order}/delivered', [VendorOrderStatusController::class, 'delivered']);
-            Route::post('/orders/{order}/completed', [VendorOrderStatusController::class, 'completed']);
+            Route::post('/orders/{order}/delivered', [VendorOrderController::class, 'delivered']);
+            Route::post('/orders/{order}/completed', [VendorOrderController::class, 'completed']);
 
 
             // ✅ Repricing proposal

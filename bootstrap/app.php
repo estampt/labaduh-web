@@ -23,7 +23,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // ✅ Force JSON for all API routes
         $middleware->appendToGroup('api', \App\Http\Middleware\ForceJsonResponse::class);
 
-        // ✅ Your existing API logger
+        // ✅ NEW: log ALL incoming + outgoing API JSON (request + response)
+        // Put this early so you capture what happens even if later middleware/controllers fail.
+        $middleware->appendToGroup('api', \App\Http\Middleware\LogJsonTraffic::class);
+
+        // ✅ Your existing API logger (keep if you still want it)
         $middleware->appendToGroup('api', \App\Http\Middleware\ApiLogger::class);
 
         // ✅ NEW: update users.last_seen_at (throttled inside middleware)

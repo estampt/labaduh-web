@@ -76,50 +76,86 @@ class CustomerOrderController extends Controller
     |--------------------------------------------------------------------------
     */
     public function latest(Request $request)
-    {
-        $user = $request->user();
-        $perPage = (int) ($request->get('per_page', 5));
+{
+    $user = $request->user();
+    $perPage = (int) ($request->get('per_page', 5));
 
-        $orders = Order::query()
-            ->select('orders.*') // ✅ safety: never drop order columns
-            ->where('customer_id', $user->id)
-            ->whereNotIn('status', $this->closedStatuses())
-            ->with([
-                'acceptedShop' => function ($q) {
-                    $q->select([
-                            'id',
-                            'name',
-                            'profile_photo_url',
-                            'latitude',
-                            'longitude',
-                        ])
-                        // ⭐ rating (from order_feedbacks)
-                        ->addSelect([
-                            'avg_rating' => DB::table('order_feedbacks')
-                                ->selectRaw('AVG(rating)')
-                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
-                            'ratings_count' => DB::table('order_feedbacks')
-                                ->selectRaw('COUNT(*)')
-                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
-                        ]);
-                },
+    $orders = Order::query()
+        ->select('orders.*')
+        ->where('customer_id', $user->id)
+        ->whereNotIn('status', $this->closedStatuses())
+        ->with([
+            'acceptedShop' => function ($q) {
+                $q->select([
+                        'id',
+                        'name',
+                        'profile_photo_url',
+                        'latitude',
+                        'longitude',
+                    ])
+                    ->addSelect([
+                        'avg_rating' => DB::table('order_feedbacks')
+                            ->selectRaw('AVG(rating)')
+                            ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                        'ratings_count' => DB::table('order_feedbacks')
+                            ->selectRaw('COUNT(*)')
+                            ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                    ]);
+            },
 
-                // ✅ ADD THIS: service info per order item
-                'items.service:id,name,description',
-                // ✅ options + service_options info
-                'items.options.serviceOption:id,name,description',
-            ])
-            ->orderByDesc('created_at')   // 👈 newest first
-            ->cursorPaginate($perPage);
+            // ✅ order_items snapshot only (no services table)
+            'items' => function ($q) {
+                $q->select([
+                    'id',
+                    'order_id',
+                    'service_id', // keep if you store it, but no joins will happen
+                    'service_name',
+                    'service_description',
+                    'qty',
+                    'qty_estimated',
+                    'qty_actual',
+                    'uom',
+                    'pricing_model',
+                    'minimum',
+                    'min_price',
+                    'price_per_uom',
+                    'computed_price',
+                    'estimated_price',
+                    'final_price',
+                    'created_at',
+                    'updated_at',
+                ])->orderBy('id');
+            },
 
-        $data = $orders->getCollection()
-            ->map(fn ($order) => $this->transformFromShow($order));
+            // ✅ order_item_options snapshot only (no service_options table)
+            'items.options' => function ($q) {
+                $q->select([
+                    'id',
+                    'order_item_id',
+                    'service_option_id', // keep if you store it, but no joins will happen
+                    'service_option_name',
+                    'service_option_description',
+                    'price',
+                    'is_required',
+                    'computed_price',
+                    'created_at',
+                    'updated_at',
+                ])->orderBy('id');
+            },
+        ])
+        ->orderByDesc('created_at')
+        ->cursorPaginate($perPage);
 
-        return response()->json([
-            'data' => $data,
-            'cursor' => $orders->nextCursor()?->encode(),
-        ]);
-    }
+    $data = $orders->getCollection()
+        ->map(fn ($order) => $this->transformFromShow($order));
+
+    return response()->json([
+        'data' => $data,
+        'cursor' => $orders->nextCursor()?->encode(),
+    ]);
+}
+
+
 
 
     /*
@@ -143,8 +179,6 @@ class CustomerOrderController extends Controller
 
     public function store(Request $request)
     {
-
-
         $data = $request->validate([
             'search_lat' => ['required','numeric'],
             'search_lng' => ['required','numeric'],
@@ -160,10 +194,6 @@ class CustomerOrderController extends Controller
             'delivery_address_id' => ['nullable','integer'],
             'pickup_address_snapshot' => ['nullable','array'],
             'delivery_address_snapshot' => ['nullable','array'],
-
-            // ✅ FIX: remove invalid rules that were causing foreach(null) crash
-            // pickup_provider / delivery_provider / pickup_driver_id / delivery_driver_id
-            // will be set as defaults when creating the order.
 
             'currency' => ['nullable','string','size:3'],
             'notes' => ['nullable','string'],
@@ -187,14 +217,45 @@ class CustomerOrderController extends Controller
             'items.*.options.*.computed_price' => ['nullable','numeric','min:0'],
         ]);
 
-
-
         $customerId = (int) auth()->id();
 
         $order = DB::transaction(function () use ($data, $customerId) {
             $settings = app(\App\Services\AppSettings::class);
             $minRadiusKm = (float) $settings->get('broadcast.min_radius_km', 20.0);
             $radiusKm = max((float) ($data['radius_km'] ?? 3), $minRadiusKm);
+
+            // ✅ 1) Collect all service IDs from payload
+            $serviceIds = collect($data['items'])
+                ->pluck('service_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            // ✅ 2) Fetch services once (id => {name, description})
+            $services = $serviceIds->isEmpty()
+                ? collect()
+                : DB::table('services')
+                    ->whereIn('id', $serviceIds)
+                    ->select('id', 'name', 'description')
+                    ->get()
+                    ->keyBy('id');
+
+            // ✅ 3) Collect all option IDs from payload (across all items)
+            $optionIds = collect($data['items'])
+                ->flatMap(fn ($it) => $it['options'] ?? [])
+                ->pluck('service_option_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            // ✅ 4) Fetch service options once (id => {name, description})
+            $serviceOptions = $optionIds->isEmpty()
+                ? collect()
+                : DB::table('service_options')
+                    ->whereIn('id', $optionIds)
+                    ->select('id', 'name', 'description')
+                    ->get()
+                    ->keyBy('id');
 
             $order = Order::create([
                 'customer_id' => $customerId,
@@ -211,7 +272,6 @@ class CustomerOrderController extends Controller
                 'pickup_address_snapshot' => $data['pickup_address_snapshot'] ?? null,
                 'delivery_address_snapshot' => $data['delivery_address_snapshot'] ?? null,
 
-                // ✅ FIX: set defaults here (instead of invalid validation rules)
                 'pickup_provider' => 'vendor',
                 'delivery_provider' => 'vendor',
                 'pickup_driver_id' => null,
@@ -224,8 +284,15 @@ class CustomerOrderController extends Controller
             $subtotal = 0;
 
             foreach ($data['items'] as $it) {
+                $serviceRow = $services->get((int) $it['service_id']);
+
                 $item = $order->items()->create([
                     'service_id' => $it['service_id'],
+
+                    // ✅ NEW: snapshot fields stored on order_items
+                    'service_name' => $serviceRow?->name,
+                    'service_description' => $serviceRow?->description,
+
                     'qty' => $it['qty'],
                     'uom' => $it['uom'] ?? null,
                     'pricing_model' => $it['pricing_model'] ?? null,
@@ -238,11 +305,17 @@ class CustomerOrderController extends Controller
                 $subtotal += (float) $it['computed_price'];
 
                 foreach (($it['options'] ?? []) as $opt) {
+                    $row = $serviceOptions->get((int) $opt['service_option_id']);
+
                     $item->options()->create([
                         'service_option_id' => $opt['service_option_id'],
                         'price' => $opt['price'],
                         'is_required' => (bool) ($opt['is_required'] ?? false),
                         'computed_price' => $opt['computed_price'] ?? $opt['price'],
+
+                        // ✅ snapshot fields stored on order_item_options
+                        'service_option_name' => $row?->name,
+                        'service_option_description' => $row?->description,
                     ]);
 
                     $subtotal += (float) ($opt['computed_price'] ?? $opt['price']);
@@ -264,8 +337,6 @@ class CustomerOrderController extends Controller
                 'total' => $total,
             ]);
 
-
-            // ✅ Broadcast to shops within radius (create order_broadcasts rows)
             $this->broadcastToNearbyShops($order);
 
             app(OrderTimelineRecorder::class)->record(
@@ -274,14 +345,54 @@ class CustomerOrderController extends Controller
                 'customer',
                 auth()->id()
             );
+
             return $order;
         });
 
-
+        // ✅ load snapshot fields too
         return response()->json([
-            'data' => $order->load('items.options'),
+            'data' => $order->load([
+                'items' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_id',
+                        'service_id',
+                        'service_name',
+                        'service_description',
+                        'qty',
+                        'qty_estimated',
+                        'qty_actual',
+                        'uom',
+                        'pricing_model',
+                        'minimum',
+                        'min_price',
+                        'price_per_uom',
+                        'computed_price',
+                        'estimated_price',
+                        'final_price',
+                        'created_at',
+                        'updated_at',
+                    ]);
+                },
+                'items.options' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_item_id',
+                        'service_option_id',
+                        'price',
+                        'is_required',
+                        'computed_price',
+                        'service_option_name',
+                        'service_option_description',
+                        'created_at',
+                        'updated_at',
+                    ]);
+                },
+            ]),
         ]);
     }
+
+
 
 
     private function withinRadiusKm(
@@ -311,84 +422,130 @@ class CustomerOrderController extends Controller
     |--------------------------------------------------------------------------
     */
     protected function transformFromShow(Order $order): array
-    {
-        // Ensure the same base payload your app expects (orders + relations)
-        $order->loadMissing([
-            'items.options.serviceOption:id,name,description', // ✅ ADD: option -> service_option
-            'items.service:id,name,description',
-            'acceptedShop',
-            'driver',
-        ]);
+{
+    // ✅ Only snapshot-based loads (NO services / service_options joins)
+    $order->loadMissing([
+        'items' => function ($q) {
+            $q->select([
+                'id',
+                'order_id',
+                'service_id',
+                'service_name',
+                'service_description',
+                'qty',
+                'qty_estimated',
+                'qty_actual',
+                'uom',
+                'pricing_model',
+                'minimum',
+                'min_price',
+                'price_per_uom',
+                'computed_price',
+                'estimated_price',
+                'final_price',
+                'created_at',
+                'updated_at',
+            ])->orderBy('id');
+        },
 
-        $payload = $order->toArray();
+        'items.options' => function ($q) {
+            $q->select([
+                'id',
+                'order_item_id',
+                'service_option_id',
+                'service_option_name',
+                'service_option_description',
+                'price',
+                'is_required',
+                'computed_price',
+                'created_at',
+                'updated_at',
+            ])->orderBy('id');
+        },
 
-        // ✅ Ensure items include service + option details consistently
-        if ($order->relationLoaded('items')) {
-            $payload['items'] = $order->items->map(function ($item) {
+        'acceptedShop',
+        'driver',
+    ]);
 
-                $arr = $item->toArray();
+    // ✅ Start from attributes only (prevents accidental relation serialization)
+    $payload = $order->attributesToArray();
 
-                // ---- SERVICE ----
-                $service = $item->service ?? null;
-                $arr['service'] = $service ? [
-                    'id' => $service->id,
-                    'name' => $service->name,
-                    'description' => $service->description,
-                ] : null;
+    // If you need these timestamps in ISO (optional)
+    if ($order->created_at) $payload['created_at'] = $order->created_at->toISOString();
+    if ($order->updated_at) $payload['updated_at'] = $order->updated_at->toISOString();
 
-                // ---- OPTIONS (service_options.name/description) ----
-                if ($item->relationLoaded('options')) {
-                    $arr['options'] = $item->options->map(function ($opt) {
-                        $optArr = $opt->toArray();
+    // ✅ Driver + acceptedShop can be included explicitly (so you control shape)
+    $payload['driver'] = $order->relationLoaded('driver') && $order->driver
+        ? $order->driver->toArray()
+        : null;
 
-                        $serviceOption = $opt->serviceOption ?? null;
-                        $optArr['service_option'] = $serviceOption ? [
-                            'id' => $serviceOption->id,
-                            'name' => $serviceOption->name,
-                            'description' => $serviceOption->description,
-                        ] : null;
+    // ✅ ITEMS (snapshot only)
+    $payload['items'] = $order->relationLoaded('items')
+        ? $order->items->map(function ($item) {
+            $arr = $item->attributesToArray();
 
-                        return $optArr;
-                    })->values()->toArray();
-                }
+            if ($item->created_at) $arr['created_at'] = $item->created_at->toISOString();
+            if ($item->updated_at) $arr['updated_at'] = $item->updated_at->toISOString();
 
-                return $arr;
-            })->values()->toArray();
-        }
+            // ✅ SERVICE — snapshot fields in order_items
+            $arr['service'] = [
+                'id' => $item->service_id !== null ? (int) $item->service_id : null,
+                'name' => $item->service_name,
+                'description' => $item->service_description,
+            ];
 
-        $shop = $order->acceptedShop;
+            // ✅ OPTIONS — snapshot fields in order_item_options
+            $arr['options'] = $item->relationLoaded('options')
+                ? $item->options->map(function ($opt) {
+                    $optArr = $opt->attributesToArray();
 
-        $distanceKm = null;
-        if (
-            $shop &&
-            is_numeric($order->search_lat) && is_numeric($order->search_lng) &&
-            is_numeric($shop->latitude) && is_numeric($shop->longitude)
-        ) {
-            $distanceKm = $this->distanceKm(
-                (float) $order->search_lat,
-                (float) $order->search_lng,
-                (float) $shop->latitude,
-                (float) $shop->longitude
-            );
-        }
+                    if ($opt->created_at) $optArr['created_at'] = $opt->created_at->toISOString();
+                    if ($opt->updated_at) $optArr['updated_at'] = $opt->updated_at->toISOString();
 
-        // Add-only: shop summary for tracking UI
-        $payload['vendor_shop'] = $shop ? [
-            'id' => $shop->id,
-            'name' => $shop->name,
-            'profile_photo_url' => $shop->profile_photo_url,
+                    $optArr['service_option'] = [
+                        'id' => $opt->service_option_id !== null ? (int) $opt->service_option_id : null,
+                        'name' => $opt->service_option_name,
+                        'description' => $opt->service_option_description,
+                    ];
 
-            // rating fields are selected in latest() via subquery (avg_rating, ratings_count)
-            'avg_rating' => isset($shop->avg_rating) && $shop->avg_rating !== null
-                ? round((float) $shop->avg_rating, 1)
-                : null,
-            'ratings_count' => (int) ($shop->ratings_count ?? 0),
+                    return $optArr;
+                })->values()->toArray()
+                : [];
 
-            'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
-        ] : null;
+            return $arr;
+        })->values()->toArray()
+        : [];
 
-        return $payload;
+    // ✅ Vendor shop block (explicit)
+    $shop = $order->acceptedShop;
+
+    $distanceKm = null;
+    if (
+        $shop &&
+        is_numeric($order->search_lat) && is_numeric($order->search_lng) &&
+        is_numeric($shop->latitude) && is_numeric($shop->longitude)
+    ) {
+        $distanceKm = $this->distanceKm(
+            (float) $order->search_lat,
+            (float) $order->search_lng,
+            (float) $shop->latitude,
+            (float) $shop->longitude
+        );
     }
+
+    $payload['vendor_shop'] = $shop ? [
+        'id' => $shop->id,
+        'name' => $shop->name,
+        'profile_photo_url' => $shop->profile_photo_url,
+        'avg_rating' => isset($shop->avg_rating) && $shop->avg_rating !== null
+            ? round((float) $shop->avg_rating, 1)
+            : null,
+        'ratings_count' => (int) ($shop->ratings_count ?? 0),
+        'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
+    ] : null;
+
+    return $payload;
+}
 
 
 

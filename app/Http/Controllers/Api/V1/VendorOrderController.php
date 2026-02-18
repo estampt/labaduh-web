@@ -13,7 +13,9 @@ use App\Support\OrderTimelineKeys;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-class VendorOrderStatusController extends Controller
+
+
+class VendorOrderController extends Controller
 {
     private function ensureOrderBelongsToShop(Order $order, VendorShop $shop): void
     {
@@ -58,6 +60,134 @@ class VendorOrderStatusController extends Controller
         $order->save();
     }
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | ORDERS BY SHOP — Active / Non-closed orders per vendor shop
+    |--------------------------------------------------------------------------
+    */
+    public function getActiveOrderbyShop(Request $request, int $shopId)
+    {
+
+        $perPage = (int) ($request->get('per_page', 5));
+
+        $orders = Order::query()
+            ->select('orders.*')
+            ->where('accepted_shop_id', $shopId)
+            ->where('status', '!=', 'archived') // adjust if you have more closed statuses
+            ->with([
+                'customer:id,name,address_line1,address_line2,postal_code,latitude,longitude',
+                'acceptedShop' => function ($q) {
+                    $q->select([
+                            'id',
+                            'name',
+                            'profile_photo_url',
+                            'latitude',
+                            'longitude',
+                        ])
+                        ->addSelect([
+                            'avg_rating' => DB::table('order_feedbacks')
+                                ->selectRaw('AVG(rating)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                            'ratings_count' => DB::table('order_feedbacks')
+                                ->selectRaw('COUNT(*)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                        ]);
+                },
+                'items.service:id,name,description',
+                'items.options.serviceOption:id,name,description',
+            ])
+            ->orderByDesc('created_at')
+            ->cursorPaginate($perPage);
+
+        $data = collect($orders->items())
+            ->map(fn (Order $order) => $this->transformOrderForVendor($order, $shopId))
+            ->values();
+
+        return response()->json([
+            'data' => $data,
+            'cursor' => $orders->nextCursor()?->encode(),
+        ]);
+    }
+
+     /**
+     * Transform an Order into the vendor-facing JSON shape.
+     * Keep this inside the same controller (as you requested).
+     */
+    protected function transformOrderForVendor(Order $order, int $shopId): array
+    {
+        // Helpful computed summaries for UI
+        $items = $order->items ?? collect();
+
+        $itemsCount = $items->count();
+        $servicesSummary = $items
+            ->pluck('service.name')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        return [
+            'id' => $order->id,
+            'status' => $order->status,
+            'created_at' => optional($order->created_at)?->toISOString(),
+            'updated_at' => optional($order->updated_at)?->toISOString(),
+
+            // Shop context
+            'shop_id' => $shopId,
+            'accepted_shop' => $order->acceptedShop ? [
+                'id' => $order->acceptedShop->id,
+                'name' => $order->acceptedShop->name,
+                'profile_photo_url' => $order->acceptedShop->profile_photo_url,
+                'latitude' => $order->acceptedShop->latitude,
+                'longitude' => $order->acceptedShop->longitude,
+                'avg_rating' => $order->acceptedShop->avg_rating,
+                'ratings_count' => $order->acceptedShop->ratings_count,
+            ] : null,
+
+            // Customer
+            'customer' => $order->customer ? [
+                'id' => $order->customer->id,
+                'name' => $order->customer->name,
+                // 'profile_photo_url' => $order->customer->profile_photo_url, // enable after migration
+            ] : null,
+
+            // Quick UI helpers
+            'items_count' => $itemsCount,
+            'services' => $servicesSummary,
+
+            // Full items (vendor needs to see services + options)
+            'items' => $items->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'quantity' => $item->quantity ?? 1,
+
+                    'service' => $item->service ? [
+                        'id' => $item->service->id,
+                        'name' => $item->service->name,
+                        'description' => $item->service->description,
+                    ] : null,
+
+                    'options' => ($item->options ?? collect())->map(function ($opt) {
+                        return [
+                            'id' => $opt->id,
+                            'qty' => $opt->qty ?? 1,
+                            'service_option' => $opt->serviceOption ? [
+                                'id' => $opt->serviceOption->id,
+                                'name' => $opt->serviceOption->name,
+                                'description' => $opt->serviceOption->description,
+                            ] : null,
+                        ];
+                    })->values()->all(),
+                ];
+            })->values()->all(),
+
+            // If you have money fields, you can include them here safely:
+            // 'subtotal' => $order->subtotal,
+            // 'delivery_fee' => $order->delivery_fee,
+            // 'total' => $order->total,
+        ];
+    }
     // -----------------------
     // PICKUP FLOW
     // -----------------------
