@@ -265,19 +265,19 @@ Route::prefix('v1')->group(function () {
 
 
             // Vendor order status actions
-            Route::post('/orders/{order}/pickup-scheduled', [VendorOrderController::class, 'pickupScheduled']);
-            Route::post('/orders/{order}/picked-up', [VendorOrderController::class, 'pickedUp']);
+            Route::post('/orders/{order}/pickup_scheduled', [VendorOrderController::class, 'pickupScheduled']);
+            Route::post('/orders/{order}/picked_up', [VendorOrderController::class, 'pickedUp']);
 
             // ✅ Weight flow
-            Route::post('/orders/{order}/weight-reviewed', [VendorOrderController::class, 'weightReviewed']);
-            Route::post('/orders/{order}/weight-accepted', [VendorOrderController::class, 'weightAccepted']);
+            Route::post('/orders/{order}/weight_reviewed', [VendorOrderController::class, 'weightReviewed']);
+            Route::post('/orders/{order}/weight_accepted', [VendorOrderController::class, 'weightAccepted']);
 
-            Route::post('/orders/{order}/start-washing', [VendorOrderController::class, 'startWashing']);
+            Route::post('/orders/{order}/washing', [VendorOrderController::class, 'startWashing']);
             Route::post('/orders/{order}/ready', [VendorOrderController::class, 'ready']);
 
             // ✅ Delivery flow
-            Route::post('/orders/{order}/delivery-scheduled', [VendorOrderController::class, 'deliveryScheduled']);
-            Route::post('/orders/{order}/out-for-delivery', [VendorOrderController::class, 'outForDelivery']);
+            Route::post('/orders/{order}/delivery_scheduled', [VendorOrderController::class, 'deliveryScheduled']);
+            Route::post('/orders/{order}/out_for_delivery', [VendorOrderController::class, 'outForDelivery']);
 
             Route::post('/orders/{order}/delivered', [VendorOrderController::class, 'delivered']);
             Route::post('/orders/{order}/completed', [VendorOrderController::class, 'completed']);
