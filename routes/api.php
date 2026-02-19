@@ -253,11 +253,6 @@ Route::prefix('v1')->group(function () {
             Route::put   ('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'update']);
             Route::delete('services/{shopService}/options/{shopServiceOption}', [ShopServiceOptionController::class, 'destroy']);
 
-             // List orders broadcast to this shop (pending/active)
-            Route::get('/order-broadcasts', [VendorOrderBroadcastController::class, 'index']);
-
-            // Accept a broadcast (claim the order)
-            Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
 
 
 
@@ -284,7 +279,16 @@ Route::prefix('v1')->group(function () {
 
             // routes/api.php
 
+
             Route::get('/orders/active-summary',[VendorOrderController::class, 'activeSummaryByShop']);
+
+
+             // Retrieve Order Information
+            Route::get('/orderBroadcast', [VendorOrderBroadcastController::class, 'getBroadCastedOrderByOrderId']);
+
+            // Accept a broadcast (claim the order)
+            Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
+
 
             Route::get('/orders/broadcasted',[VendorOrderController::class, 'getBroadcastedOrderHeadersByShop']);
 
