@@ -110,7 +110,7 @@ class CustomerOrderController extends Controller
                         'order_id',
                         'service_id', // keep if you store it, but no joins will happen
                         'service_name',
-                        'service_description',
+                        //'service_description',
                         'qty',
                         'qty_estimated',
                         'qty_actual',
@@ -134,7 +134,7 @@ class CustomerOrderController extends Controller
                         'order_item_id',
                         'service_option_id', // keep if you store it, but no joins will happen
                         'service_option_name',
-                        'service_option_description',
+                        //'service_option_description',
                         'price',
                         'is_required',
                         'computed_price',
