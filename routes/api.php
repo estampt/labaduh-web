@@ -286,6 +286,8 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/orders/active-summary',[VendorOrderController::class, 'activeSummaryByShop']);
 
+            Route::get('/orders/broadcasted',[VendorOrderController::class, 'getBroadcastedOrderHeadersByShop']);
+
 
             // ✅ Repricing proposal
             Route::post('/orders/{order}/propose-final', [VendorOrderPricingController::class, 'proposeFinal']);

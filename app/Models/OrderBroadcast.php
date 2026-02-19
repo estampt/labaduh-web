@@ -12,7 +12,6 @@ class OrderBroadcast extends Model
         'vendor_id',
         'status',
         'sent_at',
-        'expires_at',
     ];
 
     protected $casts = [

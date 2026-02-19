@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 
+use Illuminate\Support\Facades\Log;
 
 
 class VendorOrderController extends Controller
@@ -322,159 +323,262 @@ class VendorOrderController extends Controller
     }
 
 
-    public function weightReviewed(
-        Request $request,
-        Vendor $vendor,
-        VendorShop $shop,
-        Order $order
-    ) {
-        // Get raw JSON payload
-        $rawJson = $request->getContent();
-
-        // Decode to array (optional, for structured logging)
-        $jsonArray = $request->all();
-
-        // Log exactly as received
-        \Log::info('📦 weightReviewed RAW JSON', [
-            'vendor_id' => $vendor->id,
-            'shop_id'   => $shop->id,
-            'order_id'  => $order->id,
-            'raw'       => $rawJson,
-            'parsed'    => $jsonArray,
-        ]);
-
-        // Return JSON exactly as received
-        return response()->json([
-            'received' => $jsonArray
-        ]);
-    }
-
     // -----------------------
     // WEIGHT FLOW (NO pickup-provider guards)
     // -----------------------
 
         // renamed: markWeightReviewed -> weightReviewed
 
-    public function weightReviewed2(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
+    public function weightReviewed(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
     {
         $this->ensureOrderBelongsToShop($order, $shop);
         $this->autoApproveIfExpired($order);
 
-        // ✅ Validate (adjust max size as you like)
-        $validated = $request->validate([
-            'weight_kg' => ['required', 'numeric', 'min:0.01'],
-            'notes'     => ['nullable', 'string'],
+        $savedPaths = []; // track saved files for cleanup if transaction fails
 
-            // Optional: items update payload (if you’re sending it)
-            'items'                  => ['nullable', 'array'],
-            'items.*.order_item_id'  => ['required_with:items', 'integer'],
-            'items.*.item_qty'       => ['required_with:items', 'numeric', 'min:0.01'],
-            'items.*.uploaded'       => ['nullable', 'boolean'],
-            'items.*.notes'          => ['nullable', 'string'],
-
-            // Photos
-            'image'      => ['nullable', 'image', 'max:5120'],
-            'images'     => ['nullable', 'array', 'max:10'],
-            'images.*'   => ['image', 'max:5120'],
+        Log::info('📦 weightReviewed START', [
+            'vendor_id' => $vendor->id,
+            'shop_id'   => $shop->id,
+            'order_id'  => $order->id,
+            'has_image' => $request->hasFile('image'),
+            'has_images'=> $request->hasFile('images'),
         ]);
 
-        // ✅ Transition + timeline
-        $this->transition($order, OrderTimelineKeys::PICKED_UP, OrderTimelineKeys::WEIGHT_REVIEWED);
+        try {
+            return DB::transaction(function () use (
+                $request, $vendor, $shop, $order, &$savedPaths
+            ) {
 
-        app(OrderTimelineRecorder::class)->record(
-            $order,
-            OrderTimelineKeys::WEIGHT_REVIEWED,
-            'vendor',
-            $vendor->id,
-            ['shop_id' => $shop->id]
-        );
+                /**
+                 * =====================================================
+                 * 1) Normalize multipart payload
+                 * =====================================================
+                 */
+                $items = $request->input('items');
 
-        // ✅ Update orders table (safe: only updates if columns exist)
-        $orderUpdates = [];
+                if (is_string($items)) {
+                    $decoded = json_decode($items, true);
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        $items = $decoded;
+                    }
+                }
 
-        // Choose your column name(s). If you already have actual_weight_kg, it’ll use it.
-        if (Schema::hasColumn('orders', 'actual_weight_kg')) {
-            $orderUpdates['actual_weight_kg'] = $validated['weight_kg'];
-        } elseif (Schema::hasColumn('orders', 'weight_kg')) {
-            $orderUpdates['weight_kg'] = $validated['weight_kg'];
-        } elseif (Schema::hasColumn('orders', 'weight')) {
-            $orderUpdates['weight'] = $validated['weight_kg'];
-        }
+                if (!is_array($items)) {
+                    $items = [];
+                }
 
-        if (!empty($validated['notes'])) {
-            if (Schema::hasColumn('orders', 'weight_review_notes')) {
-                $orderUpdates['weight_review_notes'] = $validated['notes'];
-            } elseif (Schema::hasColumn('orders', 'pricing_notes')) {
-                // fallback if you don’t want a new column yet
-                $orderUpdates['pricing_notes'] = $validated['notes'];
-            }
-        }
+                $request->merge(['items' => $items]);
 
-        if (!empty($orderUpdates)) {
-            $order->fill($orderUpdates)->save();
-        }
+                Log::info('📦 weightReviewed NORMALIZED', [
+                    'vendor_id'    => $vendor->id,
+                    'shop_id'      => $shop->id,
+                    'order_id'     => $order->id,
+                    'items_count'  => is_array($items) ? count($items) : 0,
+                    'notes_exists' => $request->filled('notes'),
+                ]);
 
-        // ✅ Optional: update qty_actual per order item if you are sending items[]
-        if (!empty($validated['items']) && method_exists($order, 'items')) {
-            $itemsById = collect($validated['items'])->keyBy('order_item_id');
+                /**
+                 * =====================================================
+                 * 2) Validate
+                 * =====================================================
+                 */
+                $validated = $request->validate([
+                    'notes'     => ['nullable', 'string'],
 
-            $order->items()
-                ->whereIn('id', $itemsById->keys())
-                ->get()
-                ->each(function ($item) use ($itemsById) {
-                    $row = $itemsById[$item->id];
+                    'items'                  => ['nullable', 'array'],
+                    'items.*.order_item_id'  => ['required_with:items', 'integer'],
+                    'items.*.item_qty'       => ['required_with:items', 'numeric', 'min:0.01'],
+                    'items.*.uploaded'       => ['nullable'],
+                    'items.*.notes'          => ['nullable', 'string'],
 
-                    // Update qty_actual if column exists
-                    if (Schema::hasColumn('order_items', 'qty_actual')) {
-                        $item->qty_actual = $row['item_qty'];
-                    } elseif (Schema::hasColumn('order_items', 'qty')) {
-                        // fallback if you use qty as final
-                        $item->qty = $row['item_qty'];
+                    'image'      => ['nullable', 'image', 'max:5120'],
+                    'images'     => ['nullable', 'array', 'max:10'],
+                    'images.*'   => ['image', 'max:5120'],
+                ]);
+
+                Log::info('📦 weightReviewed VALIDATED', [
+                    'vendor_id'   => $vendor->id,
+                    'shop_id'     => $shop->id,
+                    'order_id'    => $order->id,
+                    'items_count' => !empty($validated['items']) ? count($validated['items']) : 0,
+                ]);
+
+                /**
+                 * =====================================================
+                 * 4) Optional: save notes to orders table
+                 * =====================================================
+                 */
+                if (!empty($validated['notes'])) {
+                    $orderUpdates = [];
+
+                    if (Schema::hasColumn('orders', 'weight_review_notes')) {
+                        $orderUpdates['weight_review_notes'] = $validated['notes'];
+                    } elseif (Schema::hasColumn('orders', 'pricing_notes')) {
+                        $orderUpdates['pricing_notes'] = $validated['notes'];
                     }
 
-                    $item->save();
-                });
-        }
+                    if (!empty($orderUpdates)) {
+                        $order->fill($orderUpdates)->save();
 
-        // ✅ Upload photos + create media_attachments (linked to Order)
-        $savedAttachments = [];
+                        Log::info('📦 weightReviewed ORDER_NOTES_UPDATED', [
+                            'order_id' => $order->id,
+                            'columns'  => array_keys($orderUpdates),
+                        ]);
+                    }
+                }
 
-        // Build list of incoming files from both `image` and `images[]`
-        $files = [];
+                /**
+                 * =====================================================
+                 * 5) Update qty_actual per order item (from items[])
+                 * =====================================================
+                 */
+                $updatedItems = 0;
 
-        if ($request->hasFile('image')) {
-            $files[] = $request->file('image');
-        }
+                if (!empty($validated['items']) && method_exists($order, 'items')) {
+                    $normalizedItems = collect($validated['items'])->map(function ($row) {
+                        return [
+                            'order_item_id' => (int) ($row['order_item_id'] ?? 0),
+                            'item_qty'      => (float) ($row['item_qty'] ?? 0),
+                            'uploaded'      => filter_var($row['uploaded'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                            'notes'         => $row['notes'] ?? null,
+                        ];
+                    })->filter(fn ($r) => $r['order_item_id'] > 0 && $r['item_qty'] > 0);
 
-        if ($request->hasFile('images')) {
-            foreach ((array) $request->file('images') as $f) {
-                $files[] = $f;
-            }
-        }
+                    $itemsById = $normalizedItems->keyBy('order_item_id');
 
-        if (!empty($files)) {
-            foreach ($files as $file) {
-                $path = $file->store("orders/{$order->id}/weight-review", 'public');
+                    $order->items()
+                        ->whereIn('id', $itemsById->keys())
+                        ->get()
+                        ->each(function ($item) use ($itemsById, &$updatedItems) {
+                            $row = $itemsById[$item->id];
 
-                $savedAttachments[] = MediaAttachment::create([
-                    'owner_type' => Order::class,
-                    'owner_id'   => $order->id,
-                    'disk'       => 'public',
-                    'path'       => $path,
-                    'mime'       => $file->getMimeType(),
-                    'size_bytes' => $file->getSize(),
-                    'category'   => MediaAttachment::CATEGORY_WEIGHT_REVIEW,
+                            if (Schema::hasColumn('order_items', 'qty_actual')) {
+                                $item->qty_actual = $row['item_qty'];
+                            } elseif (Schema::hasColumn('order_items', 'qty')) {
+                                $item->qty = $row['item_qty'];
+                            }
+
+                            $item->save();
+                            $updatedItems++;
+                        });
+
+                    Log::info('📦 weightReviewed ITEMS_UPDATED', [
+                        'order_id'       => $order->id,
+                        'updated_items'  => $updatedItems,
+                        'requested_ids'  => $itemsById->keys()->values()->all(),
+                    ]);
+                }
+
+                /**
+                 * =====================================================
+                 * 6) Upload photos (image + images[])
+                 * =====================================================
+                 */
+                $savedAttachments = [];
+                $files = [];
+
+                if ($request->hasFile('image')) {
+                    $files[] = $request->file('image');
+                }
+
+                if ($request->hasFile('images')) {
+                    foreach ((array) $request->file('images') as $f) {
+                        $files[] = $f;
+                    }
+                }
+
+                if (!empty($files)) {
+                    Log::info('📦 weightReviewed UPLOAD_START', [
+                        'order_id'    => $order->id,
+                        'files_count' => count($files),
+                    ]);
+
+                    foreach ($files as $file) {
+                        $path = $file->store("orders/{$order->id}/weight-review", 'public');
+                        $savedPaths[] = $path;
+
+                        $savedAttachments[] = MediaAttachment::create([
+                            'owner_type' => Order::class,
+                            'owner_id'   => $order->id,
+                            'disk'       => 'public',
+                            'path'       => $path,
+                            'mime'       => $file->getMimeType(),
+                            'size_bytes' => $file->getSize(),
+                            'category'   => MediaAttachment::CATEGORY_WEIGHT_REVIEW,
+                        ]);
+                    }
+
+                    Log::info('📦 weightReviewed UPLOAD_DONE', [
+                        'order_id'        => $order->id,
+                        'saved_count'     => count($savedAttachments),
+                        'saved_paths'     => $savedPaths,
+                    ]);
+                }
+
+                /**
+                 * =====================================================
+                 * 3) Transition + timeline
+                 * =====================================================
+                 */
+                $prevStatus = $order->status;
+
+                $this->transition($order, OrderTimelineKeys::PICKED_UP, OrderTimelineKeys::WEIGHT_REVIEWED);
+
+                app(OrderTimelineRecorder::class)->record(
+                    $order,
+                    OrderTimelineKeys::WEIGHT_REVIEWED,
+                    'vendor',
+                    $vendor->id,
+                    ['shop_id' => $shop->id]
+                );
+
+                Log::info('📦 weightReviewed STATUS_MOVED', [
+                    'order_id'    => $order->id,
+                    'from_status' => $prevStatus,
+                    'to_status'   => $order->fresh()->status,
                 ]);
+
+                /**
+                 * =====================================================
+                 * 7) Return refreshed order
+                 * =====================================================
+                 */
+                $orderFresh = $order->fresh()->loadMissing('media');
+
+                Log::info('✅ weightReviewed SUCCESS', [
+                    'vendor_id'        => $vendor->id,
+                    'shop_id'          => $shop->id,
+                    'order_id'         => $order->id,
+                    'updated_items'    => $updatedItems,
+                    'uploaded_files'   => count($savedPaths),
+                ]);
+
+                return response()->json([
+                    'data' => $orderFresh,
+                ]);
+            }, 3); // retries for deadlocks
+        } catch (\Throwable $e) {
+            // Best-effort cleanup for files saved before DB rollback
+            if (!empty($savedPaths)) {
+                foreach ($savedPaths as $p) {
+                    try {
+                        Storage::disk('public')->delete($p);
+                    } catch (\Throwable $ignored) {
+                        // ignore cleanup errors
+                    }
+                }
             }
+
+            Log::error('❌ weightReviewed FAILED', [
+                'vendor_id' => $vendor->id,
+                'shop_id'   => $shop->id,
+                'order_id'  => $order->id,
+                'error'     => $e->getMessage(),
+                'class'     => get_class($e),
+            ]);
+
+            throw $e; // let Laravel return proper error (422/500/etc)
         }
-
-        // ✅ Return refreshed order + media
-        // If you don’t have Order->media() relationship yet, add it as discussed.
-        $order = $order->fresh()->loadMissing('media');
-
-        return response()->json([
-            'data' => $order,
-        ]);
     }
 
 
@@ -635,7 +739,7 @@ class VendorOrderController extends Controller
         // Otherwise, you can optionally validate that $shop belongs to $vendor.
 
         $base = Order::query()
-            ->where('shop_id', $shop)
+            ->where('accepted_shop_id', $shop)
             ->whereNotIn('status', OrderTimelineKeys::closed());
 
         // Total active
@@ -663,6 +767,91 @@ class VendorOrderController extends Controller
             ],
         ]);
     }
+
+    public function getBroadcastedOrderHeadersByShop(Request $request, int $shopId)
+    {
+        $perPage = (int) ($request->get('per_page', 10));
+
+        $rows = DB::table('order_broadcasts as ob')
+            ->where('ob.shop_id', $shopId)
+            ->where('ob.status', 'sent')
+
+            // Join orders
+            ->join('orders as o', 'o.id', '=', 'ob.order_id')
+
+            // Prevent showing orders already accepted by other shops
+            ->where(function ($q) use ($shopId) {
+                $q->whereNull('o.accepted_shop_id')
+                  ->orWhere('o.accepted_shop_id', $shopId);
+            })
+
+            // Join customer
+            ->join('users as u', 'u.id', '=', 'o.customer_id')
+
+            ->select([
+                'ob.order_id',
+                'ob.status as broadcast_status',
+                'ob.sent_at',
+
+                'o.status as order_status',
+                'o.pickup_mode',
+                'o.delivery_mode',
+                'o.currency',
+                'o.total',
+                'o.created_at',
+
+                'u.id as customer_id',
+                'u.name as customer_name',
+                'u.profile_photo_url',
+
+                // ✅ NEW — customer address
+                'u.address_line1',
+                'u.address_line2',
+            ])
+
+            ->orderByDesc('ob.sent_at')
+            ->orderByDesc('ob.order_id')
+            ->cursorPaginate($perPage);
+
+        $data = collect($rows->items())
+            ->map(function ($r) {
+                return [
+                    'order_id' => (int) $r->order_id,
+
+                    'broadcast' => [
+                        'status' => $r->broadcast_status,
+                        'sent_at' => $r->sent_at,
+                    ],
+
+                    'order' => [
+                        'status' => $r->order_status,
+                        'pickup_mode' => $r->pickup_mode,
+                        'delivery_mode' => $r->delivery_mode,
+                        'currency' => $r->currency,
+                        'total' => $r->total,
+                        'created_at' => $r->created_at,
+                    ],
+
+                    'customer' => [
+                        'id' => (int) $r->customer_id,
+                        'name' => $r->customer_name,
+                        'profile_photo_url' => $r->profile_photo_url,
+
+                        // ✅ NEW
+                        'address_line1' => $r->address_line1,
+                        'address_line2' => $r->address_line2,
+                    ],
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'data' => $data,
+            'cursor' => $rows->nextCursor()?->encode(),
+        ]);
+    }
+
+
 
     private function canVendorMarkPickedUp(Order $order): void
     {

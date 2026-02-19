@@ -302,6 +302,8 @@ class CustomerOrderController extends Controller
                     'min_price' => $it['min_price'] ?? null,
                     'price_per_uom' => $it['price_per_uom'] ?? null,
                     'computed_price' => $it['computed_price'],
+                    'estimated_price' => $it['computed_price'],
+                    'final_price' => $it['computed_price'],
                 ]);
 
                 $subtotal += (float) $it['computed_price'];
@@ -334,10 +336,13 @@ class CustomerOrderController extends Controller
             $order->update([
                 'estimated_subtotal' => round($subtotal, 2),
                 'subtotal' => round($subtotal, 2),
+                'final_subtotal' => round($subtotal, 2),
+
                 'delivery_fee' => $deliveryFee,
                 'service_fee' => $serviceFee,
                 'discount' => $discount,
                 'total' => $total,
+                'final_total' => $total,
                 'estimated_total' => $total,
             ]);
 

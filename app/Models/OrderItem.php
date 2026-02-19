@@ -26,6 +26,7 @@ class OrderItem extends Model
         'min_price',
         'price_per_uom',
         'computed_price',
+        'final_price',
     ];
 
     protected $casts = [
