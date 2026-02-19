@@ -25,7 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // ✅ NEW: log ALL incoming + outgoing API JSON (request + response)
         // Put this early so you capture what happens even if later middleware/controllers fail.
-        //$middleware->appendToGroup('api', \App\Http\Middleware\LogJsonTraffic::class);
+        $middleware->appendToGroup('api', \App\Http\Middleware\LogJsonTraffic::class);
 
         // ✅ Your existing API logger (keep if you still want it)
         //$middleware->appendToGroup('api', \App\Http\Middleware\ApiLogger::class);

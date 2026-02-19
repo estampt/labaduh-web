@@ -16,7 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-
+use Carbon\Carbon;
 
 class CustomerOrderController extends Controller
 {
@@ -267,6 +267,9 @@ class CustomerOrderController extends Controller
                 'pickup_window_start' => $data['pickup_window_start'] ?? null,
                 'pickup_window_end' => $data['pickup_window_end'] ?? null,
                 'delivery_mode' => $data['delivery_mode'],
+
+                //'pickup_window_start' => computeDeliveryDateTime($data['delivery_mode'],$scheduledDate),
+
                 'pickup_address_id' => $data['pickup_address_id'] ?? null,
                 'delivery_address_id' => $data['delivery_address_id'] ?? null,
                 'pickup_address_snapshot' => $data['pickup_address_snapshot'] ?? null,
@@ -881,5 +884,25 @@ class CustomerOrderController extends Controller
             'cancelled',
             'closed',
         ];
+    }
+
+
+    private function computeDeliveryDateTime(
+        string $deliveryMode,
+        ?string $scheduledDate = null
+    ): ?Carbon {
+
+        return match ($deliveryMode) {
+
+            'asap' => now(),
+
+            'tomorrow' => now()->addDay(),
+
+            'schedule' => $scheduledDate
+                ? Carbon::parse($scheduledDate)
+                : null,
+
+            default => null,
+        };
     }
 }
