@@ -282,6 +282,10 @@ Route::prefix('v1')->group(function () {
             Route::post('/orders/{order}/delivered', [VendorOrderController::class, 'delivered']);
             Route::post('/orders/{order}/completed', [VendorOrderController::class, 'completed']);
 
+            // routes/api.php
+
+            Route::get('/orders/active-summary',[VendorOrderController::class, 'activeSummaryByShop']);
+
 
             // ✅ Repricing proposal
             Route::post('/orders/{order}/propose-final', [VendorOrderPricingController::class, 'proposeFinal']);

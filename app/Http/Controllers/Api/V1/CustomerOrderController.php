@@ -83,7 +83,7 @@ class CustomerOrderController extends Controller
         $orders = Order::query()
             ->select('orders.*')
             ->where('customer_id', $user->id)
-            ->whereNotIn('status', $this->closedStatuses())
+            ->whereNotIn('status', OrderTimelineKeys::closed())
             ->with([
                 'acceptedShop' => function ($q) {
                     $q->select([
@@ -294,6 +294,8 @@ class CustomerOrderController extends Controller
                     'service_description' => $serviceRow?->description,
 
                     'qty' => $it['qty'],
+                    'qty_estimated' => $it['qty'],
+                    'qty_actual' => $it['qty'],
                     'uom' => $it['uom'] ?? null,
                     'pricing_model' => $it['pricing_model'] ?? null,
                     'minimum' => $it['minimum'] ?? null,
@@ -330,11 +332,13 @@ class CustomerOrderController extends Controller
             $total = round($subtotal + $deliveryFee + $serviceFee - $discount, 2);
 
             $order->update([
+                'estimated_subtotal' => round($subtotal, 2),
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => $deliveryFee,
                 'service_fee' => $serviceFee,
                 'discount' => $discount,
                 'total' => $total,
+                'estimated_total' => $total,
             ]);
 
             $this->broadcastToNearbyShops($order);
@@ -454,7 +458,7 @@ class CustomerOrderController extends Controller
                 'order_item_id',
                 'service_option_id',
                 'service_option_name',
-                'service_option_description',
+                //'service_option_description',
                 'price',
                 'is_required',
                 'computed_price',

@@ -4,10 +4,10 @@ namespace App\Models;
 
 use App\Models\User;
 use App\Observers\OrderObserver;
+use App\Models\MediaAttachment;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-
 class Order extends Model
 {
     protected $fillable = [
@@ -71,6 +71,14 @@ class Order extends Model
     {
         return $this->belongsTo(User::class, 'customer_id');
     }
+
+
+    public function media()
+    {
+        return $this->morphMany(MediaAttachment::class, 'owner');
+    }
+
+
 /*
     protected static function booted(): void
     {

@@ -16,9 +16,12 @@ class OrderItem extends Model
         'service_name',
         'service_description',
 
+        'qty_estimated',
+        'qty_actual',
         'qty',
         'uom',
         'pricing_model',
+        'estimated_price',
         'minimum',
         'min_price',
         'price_per_uom',

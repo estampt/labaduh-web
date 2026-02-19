@@ -6,12 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Vendor;
 use App\Models\VendorShop;
+use App\Models\MediaAttachment;
 
 use App\Services\OrderTimelineRecorder;
 use App\Support\OrderTimelineKeys;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+
 
 
 
@@ -317,16 +321,64 @@ class VendorOrderController extends Controller
         ]);
     }
 
+
+    public function weightReviewed(
+        Request $request,
+        Vendor $vendor,
+        VendorShop $shop,
+        Order $order
+    ) {
+        // Get raw JSON payload
+        $rawJson = $request->getContent();
+
+        // Decode to array (optional, for structured logging)
+        $jsonArray = $request->all();
+
+        // Log exactly as received
+        \Log::info('📦 weightReviewed RAW JSON', [
+            'vendor_id' => $vendor->id,
+            'shop_id'   => $shop->id,
+            'order_id'  => $order->id,
+            'raw'       => $rawJson,
+            'parsed'    => $jsonArray,
+        ]);
+
+        // Return JSON exactly as received
+        return response()->json([
+            'received' => $jsonArray
+        ]);
+    }
+
     // -----------------------
     // WEIGHT FLOW (NO pickup-provider guards)
     // -----------------------
 
-    // renamed: markWeightReviewed -> weightReviewed
-    public function weightReviewed(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
+        // renamed: markWeightReviewed -> weightReviewed
+
+    public function weightReviewed2(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
     {
         $this->ensureOrderBelongsToShop($order, $shop);
         $this->autoApproveIfExpired($order);
 
+        // ✅ Validate (adjust max size as you like)
+        $validated = $request->validate([
+            'weight_kg' => ['required', 'numeric', 'min:0.01'],
+            'notes'     => ['nullable', 'string'],
+
+            // Optional: items update payload (if you’re sending it)
+            'items'                  => ['nullable', 'array'],
+            'items.*.order_item_id'  => ['required_with:items', 'integer'],
+            'items.*.item_qty'       => ['required_with:items', 'numeric', 'min:0.01'],
+            'items.*.uploaded'       => ['nullable', 'boolean'],
+            'items.*.notes'          => ['nullable', 'string'],
+
+            // Photos
+            'image'      => ['nullable', 'image', 'max:5120'],
+            'images'     => ['nullable', 'array', 'max:10'],
+            'images.*'   => ['image', 'max:5120'],
+        ]);
+
+        // ✅ Transition + timeline
         $this->transition($order, OrderTimelineKeys::PICKED_UP, OrderTimelineKeys::WEIGHT_REVIEWED);
 
         app(OrderTimelineRecorder::class)->record(
@@ -337,8 +389,95 @@ class VendorOrderController extends Controller
             ['shop_id' => $shop->id]
         );
 
-        return response()->json(['data' => $order->fresh()]);
+        // ✅ Update orders table (safe: only updates if columns exist)
+        $orderUpdates = [];
+
+        // Choose your column name(s). If you already have actual_weight_kg, it’ll use it.
+        if (Schema::hasColumn('orders', 'actual_weight_kg')) {
+            $orderUpdates['actual_weight_kg'] = $validated['weight_kg'];
+        } elseif (Schema::hasColumn('orders', 'weight_kg')) {
+            $orderUpdates['weight_kg'] = $validated['weight_kg'];
+        } elseif (Schema::hasColumn('orders', 'weight')) {
+            $orderUpdates['weight'] = $validated['weight_kg'];
+        }
+
+        if (!empty($validated['notes'])) {
+            if (Schema::hasColumn('orders', 'weight_review_notes')) {
+                $orderUpdates['weight_review_notes'] = $validated['notes'];
+            } elseif (Schema::hasColumn('orders', 'pricing_notes')) {
+                // fallback if you don’t want a new column yet
+                $orderUpdates['pricing_notes'] = $validated['notes'];
+            }
+        }
+
+        if (!empty($orderUpdates)) {
+            $order->fill($orderUpdates)->save();
+        }
+
+        // ✅ Optional: update qty_actual per order item if you are sending items[]
+        if (!empty($validated['items']) && method_exists($order, 'items')) {
+            $itemsById = collect($validated['items'])->keyBy('order_item_id');
+
+            $order->items()
+                ->whereIn('id', $itemsById->keys())
+                ->get()
+                ->each(function ($item) use ($itemsById) {
+                    $row = $itemsById[$item->id];
+
+                    // Update qty_actual if column exists
+                    if (Schema::hasColumn('order_items', 'qty_actual')) {
+                        $item->qty_actual = $row['item_qty'];
+                    } elseif (Schema::hasColumn('order_items', 'qty')) {
+                        // fallback if you use qty as final
+                        $item->qty = $row['item_qty'];
+                    }
+
+                    $item->save();
+                });
+        }
+
+        // ✅ Upload photos + create media_attachments (linked to Order)
+        $savedAttachments = [];
+
+        // Build list of incoming files from both `image` and `images[]`
+        $files = [];
+
+        if ($request->hasFile('image')) {
+            $files[] = $request->file('image');
+        }
+
+        if ($request->hasFile('images')) {
+            foreach ((array) $request->file('images') as $f) {
+                $files[] = $f;
+            }
+        }
+
+        if (!empty($files)) {
+            foreach ($files as $file) {
+                $path = $file->store("orders/{$order->id}/weight-review", 'public');
+
+                $savedAttachments[] = MediaAttachment::create([
+                    'owner_type' => Order::class,
+                    'owner_id'   => $order->id,
+                    'disk'       => 'public',
+                    'path'       => $path,
+                    'mime'       => $file->getMimeType(),
+                    'size_bytes' => $file->getSize(),
+                    'category'   => MediaAttachment::CATEGORY_WEIGHT_REVIEW,
+                ]);
+            }
+        }
+
+        // ✅ Return refreshed order + media
+        // If you don’t have Order->media() relationship yet, add it as discussed.
+        $order = $order->fresh()->loadMissing('media');
+
+        return response()->json([
+            'data' => $order,
+        ]);
     }
+
+
 
     // renamed: markWeightAccepted -> weightAccepted
     public function weightAccepted(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
@@ -488,6 +627,41 @@ class VendorOrderController extends Controller
         );
 
         return response()->json(['data' => $order->fresh()]);
+    }
+
+    public function activeSummaryByShop(Request $request, int $vendor, int $shop)
+    {
+        // ✅ If you already enforce vendor/shop ownership elsewhere, keep that.
+        // Otherwise, you can optionally validate that $shop belongs to $vendor.
+
+        $base = Order::query()
+            ->where('shop_id', $shop)
+            ->whereNotIn('status', OrderTimelineKeys::closed());
+
+        // Total active
+        $totalActive = (clone $base)->count();
+
+        // Group by status counts
+        $byStatus = (clone $base)
+            ->selectRaw('status, COUNT(*) as count')
+            ->groupBy('status')
+            ->orderBy('status')
+            ->get()
+            ->map(fn ($row) => [
+                'status' => (string) $row->status,
+                'count'  => (int) $row->count,
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => [
+                'vendor_id'     => $vendor,
+                'shop_id'       => $shop,
+                'total_active'  => $totalActive,
+                'by_status'     => $byStatus,
+                'closed_statuses' => OrderTimelineKeys::closed(),
+            ],
+        ]);
     }
 
     private function canVendorMarkPickedUp(Order $order): void

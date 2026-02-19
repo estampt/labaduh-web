@@ -7,25 +7,28 @@ final class OrderTimelineKeys
 {
     public const CANCELED             = 'canceled';
 
-    public const CREATED             = 'created';
-    public const PUBLISHED           = 'published';
-    public const ACCEPTED            = 'accepted';
+    public const CREATED              = 'created';
+    public const PUBLISHED            = 'published';
+    public const ACCEPTED             = 'accepted';
 
-    public const PICKUP_SCHEDULED    = 'pickup_scheduled';
-    public const PICKED_UP           = 'picked_up';
+    public const PICKUP_SCHEDULED     = 'pickup_scheduled';
+    public const PICKED_UP            = 'picked_up';
 
-    public const WEIGHT_REVIEWED     = 'weight_reviewed';
-    public const WEIGHT_ACCEPTED     = 'weight_accepted';
+    public const WEIGHT_REVIEWED      = 'weight_reviewed';
+    public const WEIGHT_ACCEPTED      = 'weight_accepted';
 
-    public const WASHING             = 'washing';
-    public const READY               = 'ready';
+    public const WASHING              = 'washing';
+    public const READY                = 'ready';
 
-    public const DELIVERY_SCHEDULED  = 'delivery_scheduled';
-    public const OUT_FOR_DELIVERY    = 'out_for_delivery';
-    public const DELIVERED           = 'delivered';
+    public const DELIVERY_SCHEDULED   = 'delivery_scheduled';
+    public const OUT_FOR_DELIVERY     = 'out_for_delivery';
+    public const DELIVERED            = 'delivered';
 
-    public const COMPLETED           = 'completed';
+    public const COMPLETED            = 'completed';
 
+    /**
+     * All statuses
+     */
     public static function all(): array
     {
         return [
@@ -49,5 +52,24 @@ final class OrderTimelineKeys
 
             self::COMPLETED,
         ];
+    }
+
+    /**
+     * Terminal / Closed statuses
+     */
+    public static function closed(): array
+    {
+        return [
+            self::COMPLETED,
+            self::CANCELED,
+        ];
+    }
+
+    /**
+     * Active (non-closed)
+     */
+    public static function active(): array
+    {
+        return array_diff(self::all(), self::closed());
     }
 }
