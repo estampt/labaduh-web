@@ -13,7 +13,7 @@ return new class extends Migration {
             // ✅ Creator
             $table->foreignId('customer_id')->constrained('users')->cascadeOnDelete();
 
-            // ✅ Status (flexible, avoids enum pain)
+            // ✅ Status (flexible)
             $table->string('status', 32)->default('published')->index();
 
             // ✅ Search context (matching)
@@ -26,7 +26,7 @@ return new class extends Migration {
             $table->dateTime('pickup_window_start')->nullable();
             $table->dateTime('pickup_window_end')->nullable();
 
-            // ✅ Optional legacy schedule fields (keep if your code uses them)
+            // ✅ Optional legacy schedule fields
             $table->date('pickup_date')->nullable();
             $table->time('pickup_time_start')->nullable();
             $table->time('pickup_time_end')->nullable();
@@ -40,7 +40,7 @@ return new class extends Migration {
             $table->json('pickup_address_snapshot')->nullable();
             $table->json('delivery_address_snapshot')->nullable();
 
-            // ✅ Logistics coordinates (optional but no clash)
+            // ✅ Logistics coordinates
             $table->decimal('pickup_lat', 10, 7)->nullable();
             $table->decimal('pickup_lng', 10, 7)->nullable();
             $table->decimal('dropoff_lat', 10, 7)->nullable();
@@ -49,7 +49,7 @@ return new class extends Migration {
             // ✅ Metrics
             $table->decimal('distance_km', 10, 2)->default(0);
 
-            // ✅ Totals (use consistent precision)
+            // ✅ Totals
             $table->char('currency', 3)->default('SGD');
             $table->decimal('subtotal', 12, 2)->default(0);
             $table->decimal('delivery_fee', 12, 2)->default(0);
@@ -57,9 +57,10 @@ return new class extends Migration {
             $table->decimal('discount', 12, 2)->default(0);
             $table->decimal('total', 12, 2)->default(0);
 
-            // ✅ Acceptance (filled later)
-            $table->foreignId('accepted_vendor_id')->nullable()->constrained('vendors')->nullOnDelete();
-            $table->foreignId('accepted_shop_id')->nullable()->constrained('vendor_shops')->nullOnDelete();
+            // ✅ Vendor acceptance (FILLED LATER)
+            // ❌ Removed foreign keys to avoid errno 150 on shared hosting / type mismatch
+            $table->unsignedBigInteger('accepted_vendor_id')->nullable()->index();
+            $table->unsignedBigInteger('accepted_shop_id')->nullable()->index();
 
             $table->text('notes')->nullable();
             $table->timestamps();
