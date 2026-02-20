@@ -12,9 +12,14 @@ return new class extends Migration {
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
 
-            $table->enum('approval_status', ['pending','approved','rejected'])->default('pending')->index();
+            $table->enum('approval_status', ['pending','approved','rejected'])
+                  ->default('pending')
+                  ->index();
+
             $table->timestamp('approved_at')->nullable();
-            $table->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
+
+            // ✅ Column only — NO foreign key
+            $table->unsignedBigInteger('approved_by')->nullable();
 
             $table->boolean('is_active')->default(false);
             $table->timestamps();
