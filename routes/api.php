@@ -283,14 +283,14 @@ Route::prefix('v1')->group(function () {
             Route::get('/orders/active-summary',[VendorOrderController::class, 'activeSummaryByShop']);
 
 
-             // Retrieve Order Information
-            Route::get('/orderBroadcast', [VendorOrderBroadcastController::class, 'getBroadCastedOrderByOrderId']);
+             // Retrieve Order
+            Route::get('/orders/broadcasted_by_order_id', [VendorOrderBroadcastController::class, 'getBroadCastedOrderByOrderId']);
 
             // Accept a broadcast (claim the order)
             Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
 
 
-            Route::get('/orders/broadcasted',[VendorOrderController::class, 'getBroadcastedOrderHeadersByShop']);
+            Route::get('/orders/broadcasted',[VendorOrderBroadcastController::class, 'getBroadcastedOrderHeadersByShop']);
 
 
             // ✅ Repricing proposal
