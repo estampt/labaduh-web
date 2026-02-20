@@ -168,8 +168,6 @@ Route::prefix('v1')->group(function () {
             // Latest order shortcut
             Route::get('orders/latest', [CustomerOrderController::class, 'latest']);
 
-            //Customer Timeline
-            //Route::get('orders/{order}/timeline', [CustomerOrderTimelineController::class, 'show']);
 
 
             Route::post('orders', [CustomerOrderController::class, 'store']);
@@ -177,6 +175,8 @@ Route::prefix('v1')->group(function () {
             Route::get('discovery/services', CustomerDiscoveryServiceController::class);
             Route::post('quotes', [CustomerQuoteController::class, 'store']);
             Route::get('orders/{order}', [CustomerOrderController::class, 'show']);
+
+            Route::get('orders/by_id/{order_id}', [CustomerOrderController::class, 'getOrderById']);
 
             Route::post('orders/{order}/approve-final', [CustomerOrderPricingController::class, 'approveFinal']);
             Route::post('orders/{order}/reject-final', [CustomerOrderPricingController::class, 'rejectFinal']);

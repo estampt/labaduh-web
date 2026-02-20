@@ -91,4 +91,5 @@ class MediaAttachment extends Model
     public const CATEGORY_PICKUP_PROOF    = 'pickup_proof';
     public const CATEGORY_DELIVERY_PROOF  = 'delivery_proof';
     public const CATEGORY_CHAT_IMAGE      = 'chat_image';
+    public const CATEGORY_ORDER_REVIEW     = 'order_review';
 }

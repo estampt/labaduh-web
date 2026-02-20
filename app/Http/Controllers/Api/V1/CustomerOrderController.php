@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderBroadcast;
 use App\Models\VendorShop;
+use App\Models\MediaAttachment;
 
 use App\Support\OrderTimelineKeys;
 use App\Services\OrderTimelineRecorder;
@@ -157,22 +158,280 @@ class CustomerOrderController extends Controller
 
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | SHOW — Single order (already exists)
+    |--------------------------------------------------------------------------
+    */
+
+    public function getOrderById(Request $request, int $order_id)
+    {
+        $user = $request->user();
+
+        // ✅ category parameter (preferred) or type (alias)
+        $categoryParam = (string) ($request->get('category') ?? $request->get('type') ?? '');
+        $rawCategories = array_values(array_filter(array_map('trim', explode(',', $categoryParam))));
+
+        // ✅ Whitelist categories to avoid typos / unexpected values
+        $allowedCategories = [
+            MediaAttachment::CATEGORY_WEIGHT_REVIEW,
+            MediaAttachment::CATEGORY_PRICING_UPDATE,
+            MediaAttachment::CATEGORY_PICKUP_PROOF,
+            MediaAttachment::CATEGORY_DELIVERY_PROOF,
+            MediaAttachment::CATEGORY_CHAT_IMAGE,
+            MediaAttachment::CATEGORY_ORDER_REVIEW,
+        ];
+
+        // ✅ Only keep valid categories; if none provided/valid, we'll return ALL media for this order
+        $categories = array_values(array_intersect($rawCategories, $allowedCategories));
+
+        // ============================================================
+        // ✅ STRICT: fetch ONLY this order_id and ONLY if owned by user
+        // ============================================================
+        $order = Order::query()
+            ->select('orders.*')
+            ->where('orders.id', $order_id)
+            ->where('customer_id', $user->id)
+            ->whereNotIn('status', OrderTimelineKeys::closed())
+            ->with([
+                'acceptedShop' => function ($q) {
+                    $q->select([
+                            'id',
+                            'name',
+                            'profile_photo_url',
+                            'latitude',
+                            'longitude',
+                        ])
+                        ->addSelect([
+                            'avg_rating' => DB::table('order_feedbacks')
+                                ->selectRaw('AVG(rating)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                            'ratings_count' => DB::table('order_feedbacks')
+                                ->selectRaw('COUNT(*)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                        ]);
+                },
+
+                'items' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_id',
+                        'service_id',
+                        'service_name',
+                        'qty',
+                        'qty_estimated',
+                        'qty_actual',
+                        'uom',
+                        'pricing_model',
+                        'minimum',
+                        'min_price',
+                        'price_per_uom',
+                        'computed_price',
+                        'estimated_price',
+                        'final_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
+
+                'items.options' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_item_id',
+                        'service_option_id',
+                        'service_option_name',
+                        'price',
+                        'is_required',
+                        'computed_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
+            ])
+            ->firstOrFail();
+
+        // ============================================================
+        // ✅ Media attachments for this order
+        // - If categories provided: filter by category
+        // - If not provided: return ALL categories for this order
+        // ============================================================
+        $mediaQuery = MediaAttachment::query()
+            ->where('owner_type', Order::class)
+            ->where('owner_id', $order->id);
+
+        if (!empty($categories)) {
+            $mediaQuery->whereIn('category', $categories);
+        }
+
+        $media = $mediaQuery
+            ->orderBy('id')
+            ->get([
+                'id',
+                'owner_id',
+                'disk',
+                'path',
+                'mime',
+                'size_bytes',
+                'category',
+                'created_at',
+            ])
+            ->map(fn ($m) => $m->toArray())
+            ->all();
+
+        // ============================================================
+        // ✅ Transform + attach media
+        // ============================================================
+        $payload = $this->transformFromShow($order);
+        $payload['media_attachments'] = $media;
+
+        return response()->json([
+            'data' => $payload,
+        ]);
+    }
 
     /*
     |--------------------------------------------------------------------------
     | SHOW — Single order (already exists)
     |--------------------------------------------------------------------------
     */
-    public function show($id)
+    public function show(Request $request)
     {
-        $order = Order::with([
-            'items.options',
-            'acceptedShop',
-            'driver',
-        ])->findOrFail($id);
+        $user = $request->user();
+        $perPage = (int) ($request->get('per_page', 10));
+
+        // ✅ Optional filters
+        $orderId = $request->get('order_id');
+
+        // ✅ category parameter (preferred) or type (alias)
+        $categoryParam = (string) ($request->get('category') ?? $request->get('type') ?? '');
+        $rawCategories = array_values(array_filter(array_map('trim', explode(',', $categoryParam))));
+
+        // ✅ Whitelist categories to avoid typos / unexpected values
+        $allowedCategories = [
+            MediaAttachment::CATEGORY_WEIGHT_REVIEW,
+            MediaAttachment::CATEGORY_PRICING_UPDATE,
+            MediaAttachment::CATEGORY_PICKUP_PROOF,
+            MediaAttachment::CATEGORY_DELIVERY_PROOF,
+            MediaAttachment::CATEGORY_CHAT_IMAGE,
+            MediaAttachment::CATEGORY_ORDER_REVIEW,
+        ];
+
+        $categories = array_values(array_intersect($rawCategories, $allowedCategories));
+
+        $query = Order::query()
+            ->select('orders.*')
+            ->where('customer_id', $user->id)
+            ->whereNotIn('status', OrderTimelineKeys::closed());
+
+        if (!empty($orderId)) {
+            $query->where('orders.id', $orderId);
+        }
+
+        $orders = $query
+            ->with([
+                'acceptedShop' => function ($q) {
+                    $q->select([
+                            'id',
+                            'name',
+                            'profile_photo_url',
+                            'latitude',
+                            'longitude',
+                        ])
+                        ->addSelect([
+                            'avg_rating' => DB::table('order_feedbacks')
+                                ->selectRaw('AVG(rating)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                            'ratings_count' => DB::table('order_feedbacks')
+                                ->selectRaw('COUNT(*)')
+                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                        ]);
+                },
+
+                'items' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_id',
+                        'service_id',
+                        'service_name',
+                        'qty',
+                        'qty_estimated',
+                        'qty_actual',
+                        'uom',
+                        'pricing_model',
+                        'minimum',
+                        'min_price',
+                        'price_per_uom',
+                        'computed_price',
+                        'estimated_price',
+                        'final_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
+
+                'items.options' => function ($q) {
+                    $q->select([
+                        'id',
+                        'order_item_id',
+                        'service_option_id',
+                        'service_option_name',
+                        'price',
+                        'is_required',
+                        'computed_price',
+                        'created_at',
+                        'updated_at',
+                    ])->orderBy('id');
+                },
+            ])
+            ->orderByDesc('created_at')
+            ->cursorPaginate($perPage);
+
+        // ============================================================
+        // ✅ Join/extract media_attachments by category for returned orders
+        // ============================================================
+        $orderIds = $orders->getCollection()->pluck('id')->values()->all();
+
+        $mediaByOrderId = collect();
+
+        // Only fetch media if category/type is provided (keeps payload light)
+        if (!empty($orderIds) && !empty($categories)) {
+            $attachments = MediaAttachment::query()
+                ->where('owner_type', Order::class)
+                ->whereIn('owner_id', $orderIds)
+                ->whereIn('category', $categories)
+                ->orderBy('id')
+                ->get([
+                    'id',
+                    'owner_id',
+                    'disk',
+                    'path',
+                    'mime',
+                    'size_bytes',
+                    'category',
+                    'created_at',
+                ]);
+
+            // group by order_id (owner_id)
+            $mediaByOrderId = $attachments
+                ->groupBy('owner_id')
+                ->map(function ($rows) {
+                    // Convert to array to include appended "url"
+                    return $rows->values()->map(fn ($m) => $m->toArray())->all();
+                });
+        }
+
+        // ============================================================
+        // ✅ Transform + attach media per order
+        // ============================================================
+        $data = $orders->getCollection()->map(function ($order) use ($mediaByOrderId) {
+            $payload = $this->transformFromShow($order);
+            $payload['media_attachments'] = $mediaByOrderId->get($order->id, []);
+            return $payload;
+        });
 
         return response()->json([
-            'data' => $this->transformFromShow($order)
+            'data' => $data,
+            'cursor' => $orders->nextCursor()?->encode(),
         ]);
     }
 
