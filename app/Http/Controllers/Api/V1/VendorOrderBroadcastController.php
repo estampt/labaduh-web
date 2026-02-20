@@ -358,61 +358,166 @@ class VendorOrderBroadcastController extends Controller
     }
 
     public function getBroadcastById(Request $request, int $shopId)
-{
-    $perPage = (int) ($request->get('per_page', 10));
+    {
+        $perPage = (int) ($request->get('per_page', 50));
 
-    // ✅ New: filter by broadcast_id (required or optional — your choice)
-    $broadcastId = (int) ($request->get('broadcast_id', 0));
+        // ✅ NEW FILTER
+        $broadcastIdFilter = $request->get('broadcast_id');
 
-    $rows = DB::table('order_broadcasts as ob')
-        ->where('ob.shop_id', $shopId)
-        ->where('ob.status', 'sent')
+        $query = DB::table('order_broadcasts as ob')
+            ->where('ob.shop_id', $shopId)
+            ->where('ob.status', 'sent')
 
-        // ✅ New: select by broadcast ID specifically
-        ->when($broadcastId > 0, function ($q) use ($broadcastId) {
-            $q->where('ob.id', $broadcastId);
-        })
+            // Join orders
+            ->join('orders as o', 'o.id', '=', 'ob.order_id')
 
-        // Join orders
-        ->join('orders as o', 'o.id', '=', 'ob.order_id')
+            // Prevent showing orders already accepted by other shops
+            ->where(function ($q) use ($shopId) {
+                $q->whereNull('o.accepted_shop_id')
+                  ->orWhere('o.accepted_shop_id', $shopId);
+            })
 
-        // Prevent showing orders already accepted by other shops
-        ->where(function ($q) use ($shopId) {
-            $q->whereNull('o.accepted_shop_id')
-              ->orWhere('o.accepted_shop_id', $shopId);
-        })
+            // Join customer
+            ->join('users as u', 'u.id', '=', 'o.customer_id');
 
-        // Join customer
-        ->join('users as u', 'u.id', '=', 'o.customer_id')
+        // ==========================================================
+        // ✅ FILTER BY BROADCAST ID (optional)
+        // ==========================================================
+        if (!empty($broadcastIdFilter)) {
+            $query->where('ob.id', (int) $broadcastIdFilter);
+        }
 
-        ->select([
-            'ob.id as broadcast_id',
-            'ob.order_id',
-            'ob.status as broadcast_status',
-            'ob.sent_at',
+        $rows = $query
+            ->select([
+                'ob.id as broadcast_id',
+                'ob.order_id',
+                'ob.status as broadcast_status',
+                'ob.sent_at',
 
-            'o.status as order_status',
-            'o.pickup_mode',
-            'o.delivery_mode',
-            'o.currency',
-            'o.total',
-            'o.created_at',
+                'o.status as order_status',
+                'o.pickup_mode',
+                'o.delivery_mode',
+                'o.currency',
+                'o.total',
+                'o.created_at',
 
-            'u.id as customer_id',
-            'u.name as customer_name',
-            'u.profile_photo_url',
+                'u.id as customer_id',
+                'u.name as customer_name',
+                'u.profile_photo_url',
+                'u.address_line1',
+                'u.address_line2',
+            ])
+            ->orderByDesc('ob.sent_at')
+            ->orderByDesc('ob.id')
+            ->cursorPaginate($perPage);
 
-            // ✅ customer address
-            'u.address_line1',
-            'u.address_line2',
-        ])
+        $itemsRows = collect($rows->items());
+        $orderIds = $itemsRows->pluck('order_id')->filter()->unique()->values();
 
-        ->orderByDesc('ob.sent_at')
-        ->orderByDesc('ob.order_id')
-        ->cursorPaginate($perPage);
+        // ==========================================================
+        // FETCH ORDER ITEMS
+        // ==========================================================
+        $orderItems = $orderIds->isEmpty()
+            ? collect()
+            : DB::table('order_items')
+                ->whereIn('order_id', $orderIds)
+                ->select([
+                    'id',
+                    'order_id',
+                    'service_id',
+                    'service_name',
+                    'qty',
+                    'qty_estimated',
+                    'qty_actual',
+                    'uom',
+                    'pricing_model',
+                    'minimum',
+                    'min_price',
+                    'price_per_uom',
+                    'computed_price',
+                    'estimated_price',
+                    'final_price',
+                    'created_at',
+                    'updated_at',
+                ])
+                ->orderBy('id')
+                ->get();
 
-    $data = collect($rows->items())
-        ->map(function ($r) {
+        $orderItemIds = $orderItems->pluck('id')->values();
+
+        // ==========================================================
+        // FETCH ITEM OPTIONS
+        // ==========================================================
+        $orderItemOptions = $orderItemIds->isEmpty()
+            ? collect()
+            : DB::table('order_item_options')
+                ->whereIn('order_item_id', $orderItemIds)
+                ->select([
+                    'id',
+                    'order_item_id',
+                    'service_option_id',
+                    'service_option_name',
+                    'price',
+                    'is_required',
+                    'computed_price',
+                    'created_at',
+                    'updated_at',
+                ])
+                ->orderBy('id')
+                ->get();
+
+        $optionsByItemId = $orderItemOptions->groupBy('order_item_id');
+
+        $itemsWithOptions = $orderItems->map(function ($it) use ($optionsByItemId) {
+            return [
+                'id' => (int) $it->id,
+                'order_id' => (int) $it->order_id,
+                'service_id' => (int) $it->service_id,
+                'service_name' => $it->service_name,
+
+                'qty' => $it->qty,
+                'qty_estimated' => $it->qty_estimated,
+                'qty_actual' => $it->qty_actual,
+                'uom' => $it->uom,
+
+                'pricing_model' => $it->pricing_model,
+                'minimum' => $it->minimum,
+                'min_price' => $it->min_price,
+                'price_per_uom' => $it->price_per_uom,
+                'computed_price' => $it->computed_price,
+                'estimated_price' => $it->estimated_price,
+                'final_price' => $it->final_price,
+
+                'created_at' => $it->created_at,
+                'updated_at' => $it->updated_at,
+
+                'options' => $optionsByItemId
+                    ->get($it->id, collect())
+                    ->map(function ($op) {
+                        return [
+                            'id' => (int) $op->id,
+                            'order_item_id' => (int) $op->order_item_id,
+                            'service_option_id' => (int) $op->service_option_id,
+                            'service_option_name' => $op->service_option_name,
+                            'price' => $op->price,
+                            'is_required' => (bool) $op->is_required,
+                            'computed_price' => $op->computed_price,
+                            'created_at' => $op->created_at,
+                            'updated_at' => $op->updated_at,
+                        ];
+                    })
+                    ->values(),
+            ];
+        });
+
+        $itemsByOrderId = $itemsWithOptions->groupBy('order_id');
+
+        // ==========================================================
+        // FINAL RESPONSE
+        // ==========================================================
+        $data = $itemsRows->map(function ($r) use ($itemsByOrderId) {
+            $orderId = (int) $r->order_id;
+
             return [
                 'broadcast_id' => (int) $r->broadcast_id,
 
@@ -423,6 +528,7 @@ class VendorOrderBroadcastController extends Controller
                 ],
 
                 'order' => [
+                    'order_id' => $orderId,
                     'status' => $r->order_status,
                     'pickup_mode' => $r->pickup_mode,
                     'delivery_mode' => $r->delivery_mode,
@@ -438,14 +544,16 @@ class VendorOrderBroadcastController extends Controller
                     'address_line1' => $r->address_line1,
                     'address_line2' => $r->address_line2,
                 ],
-            ];
-        })
-        ->values();
 
-    return response()->json([
-        'data' => $data,
-        'cursor' => $rows->nextCursor()?->encode(),
-    ]);
-}
+                // ✅ ITEMS
+                'items' => $itemsByOrderId->get($orderId, collect())->values(),
+            ];
+        })->values();
+
+        return response()->json([
+            'data' => $data,
+            'cursor' => $rows->nextCursor()?->encode(),
+        ]);
+    }
 
 }
