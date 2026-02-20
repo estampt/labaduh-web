@@ -6,6 +6,7 @@ namespace App\Support;
 final class OrderTimelineKeys
 {
     public const CANCELED             = 'canceled';
+    public const REJECTED             = 'rejected';
 
     public const CREATED              = 'created';
     public const PUBLISHED            = 'published';
@@ -32,6 +33,7 @@ final class OrderTimelineKeys
     public static function all(): array
     {
         return [
+            SELF::REJECTED,
             self::CANCELED,
             self::CREATED,
             self::PUBLISHED,

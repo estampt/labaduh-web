@@ -62,7 +62,7 @@ class SendOrderBroadcastPushJob implements ShouldQueue
         );*/
 
 
-        //Broadcast to specific shop
+        // Broadcast to specific shop
         $push->sendToSpecificShop(
             $vendorUser->id,
             $b->shop_id,
@@ -70,9 +70,17 @@ class SendOrderBroadcastPushJob implements ShouldQueue
             'You received a new order request. Tap to view.',
             [
                 'type' => 'order_broadcast',
+
+                // Keep order id if still needed
                 'order_id' => $b->order_id,
-                'order_broadcast_id' => $b->id,
+
+                // ✅ Use broadcast_id as main param
+                'broadcast_id' => $b->id,
+
                 'shop_id' => $b->shop_id,
+
+                // ✅ Add direct deeplink route (recommended)
+                'route' => "/v/home/{$b->id}",
             ]
         );
 

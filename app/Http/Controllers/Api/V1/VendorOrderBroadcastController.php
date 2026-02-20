@@ -78,6 +78,63 @@ class VendorOrderBroadcastController extends Controller
         ]);
     }
 
+    public function reject(
+        Request $request,
+        Vendor $vendor,
+        VendorShop $shop,
+        OrderBroadcast $broadcast
+    ) {
+        abort_unless((int) $broadcast->shop_id === (int) $shop->id, 404);
+
+        DB::transaction(function () use ($broadcast) {
+
+            // 🔒 Lock broadcast row
+            $lockedBroadcast = OrderBroadcast::query()
+                ->where('id', $broadcast->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // 🔒 Lock order row
+            $order = Order::query()
+                ->where('id', $lockedBroadcast->order_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // Only reject if still published
+            abort_unless($order->status === 'published', 409);
+
+            // Only reject if still sent
+            abort_unless($lockedBroadcast->status === 'sent', 409);
+
+            // ✅ 1) Mark this broadcast rejected
+            $lockedBroadcast->update([
+                'status' => OrderTimelineKeys::REJECTED,
+            ]);
+
+            // ✅ 2) Check if any SENT broadcasts remain
+            $hasAnySent = OrderBroadcast::query()
+                ->where('order_id', $order->id)
+                ->where('status', 'sent')
+                ->exists();
+
+            // ✅ 3) If none → reject order
+            if (!$hasAnySent) {
+                $order->update([
+                    'status' => OrderTimelineKeys::REJECTED,
+                ]);
+            }
+        });
+
+        // Return refreshed order
+        $order = Order::query()
+            ->where('id', $broadcast->order_id)
+            ->firstOrFail();
+
+        return response()->json([
+            'data' => $order->fresh()->load('items.options'),
+        ]);
+    }
+
     public function getBroadCastedOrderByOrderId(Request $request, int $shopId)
     {
         $perPage = (int) ($request->get('per_page', 50));

@@ -292,6 +292,9 @@ Route::prefix('v1')->group(function () {
             // Accept a broadcast (claim the order)
             Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
 
+            // Reject a broadcast (claim the order)
+            Route::post('/order-broadcasts/{broadcast}/reject', [VendorOrderBroadcastController::class, 'reject']);
+
 
             Route::get('/orders/broadcasted',[VendorOrderBroadcastController::class, 'getBroadcastedOrderHeadersByShop']);
 
