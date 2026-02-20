@@ -693,130 +693,130 @@ class CustomerOrderController extends Controller
     |--------------------------------------------------------------------------
     */
     protected function transformFromShow(Order $order): array
-{
-    // ✅ Only snapshot-based loads (NO services / service_options joins)
-    $order->loadMissing([
-        'items' => function ($q) {
-            $q->select([
-                'id',
-                'order_id',
-                'service_id',
-                'service_name',
-                'service_description',
-                'qty',
-                'qty_estimated',
-                'qty_actual',
-                'uom',
-                'pricing_model',
-                'minimum',
-                'min_price',
-                'price_per_uom',
-                'computed_price',
-                'estimated_price',
-                'final_price',
-                'created_at',
-                'updated_at',
-            ])->orderBy('id');
-        },
+    {
+        // ✅ Only snapshot-based loads (NO services / service_options joins)
+        $order->loadMissing([
+            'items' => function ($q) {
+                $q->select([
+                    'id',
+                    'order_id',
+                    'service_id',
+                    'service_name',
+                    'service_description',
+                    'qty',
+                    'qty_estimated',
+                    'qty_actual',
+                    'uom',
+                    'pricing_model',
+                    'minimum',
+                    'min_price',
+                    'price_per_uom',
+                    'computed_price',
+                    'estimated_price',
+                    'final_price',
+                    'created_at',
+                    'updated_at',
+                ])->orderBy('id');
+            },
 
-        'items.options' => function ($q) {
-            $q->select([
-                'id',
-                'order_item_id',
-                'service_option_id',
-                'service_option_name',
-                //'service_option_description',
-                'price',
-                'is_required',
-                'computed_price',
-                'created_at',
-                'updated_at',
-            ])->orderBy('id');
-        },
+            'items.options' => function ($q) {
+                $q->select([
+                    'id',
+                    'order_item_id',
+                    'service_option_id',
+                    'service_option_name',
+                    //'service_option_description',
+                    'price',
+                    'is_required',
+                    'computed_price',
+                    'created_at',
+                    'updated_at',
+                ])->orderBy('id');
+            },
 
-        'acceptedShop',
-        'driver',
-    ]);
+            'acceptedShop',
+            'driver',
+        ]);
 
-    // ✅ Start from attributes only (prevents accidental relation serialization)
-    $payload = $order->attributesToArray();
+        // ✅ Start from attributes only (prevents accidental relation serialization)
+        $payload = $order->attributesToArray();
 
-    // If you need these timestamps in ISO (optional)
-    if ($order->created_at) $payload['created_at'] = $order->created_at->toISOString();
-    if ($order->updated_at) $payload['updated_at'] = $order->updated_at->toISOString();
+        // If you need these timestamps in ISO (optional)
+        if ($order->created_at) $payload['created_at'] = $order->created_at->toISOString();
+        if ($order->updated_at) $payload['updated_at'] = $order->updated_at->toISOString();
 
-    // ✅ Driver + acceptedShop can be included explicitly (so you control shape)
-    $payload['driver'] = $order->relationLoaded('driver') && $order->driver
-        ? $order->driver->toArray()
-        : null;
+        // ✅ Driver + acceptedShop can be included explicitly (so you control shape)
+        $payload['driver'] = $order->relationLoaded('driver') && $order->driver
+            ? $order->driver->toArray()
+            : null;
 
-    // ✅ ITEMS (snapshot only)
-    $payload['items'] = $order->relationLoaded('items')
-        ? $order->items->map(function ($item) {
-            $arr = $item->attributesToArray();
+        // ✅ ITEMS (snapshot only)
+        $payload['items'] = $order->relationLoaded('items')
+            ? $order->items->map(function ($item) {
+                $arr = $item->attributesToArray();
 
-            if ($item->created_at) $arr['created_at'] = $item->created_at->toISOString();
-            if ($item->updated_at) $arr['updated_at'] = $item->updated_at->toISOString();
+                if ($item->created_at) $arr['created_at'] = $item->created_at->toISOString();
+                if ($item->updated_at) $arr['updated_at'] = $item->updated_at->toISOString();
 
-            // ✅ SERVICE — snapshot fields in order_items
-            $arr['service'] = [
-                'id' => $item->service_id !== null ? (int) $item->service_id : null,
-                'name' => $item->service_name,
-                'description' => $item->service_description,
-            ];
+                // ✅ SERVICE — snapshot fields in order_items
+                $arr['service'] = [
+                    'id' => $item->service_id !== null ? (int) $item->service_id : null,
+                    'name' => $item->service_name,
+                    'description' => $item->service_description,
+                ];
 
-            // ✅ OPTIONS — snapshot fields in order_item_options
-            $arr['options'] = $item->relationLoaded('options')
-                ? $item->options->map(function ($opt) {
-                    $optArr = $opt->attributesToArray();
+                // ✅ OPTIONS — snapshot fields in order_item_options
+                $arr['options'] = $item->relationLoaded('options')
+                    ? $item->options->map(function ($opt) {
+                        $optArr = $opt->attributesToArray();
 
-                    if ($opt->created_at) $optArr['created_at'] = $opt->created_at->toISOString();
-                    if ($opt->updated_at) $optArr['updated_at'] = $opt->updated_at->toISOString();
+                        if ($opt->created_at) $optArr['created_at'] = $opt->created_at->toISOString();
+                        if ($opt->updated_at) $optArr['updated_at'] = $opt->updated_at->toISOString();
 
-                    $optArr['service_option'] = [
-                        'id' => $opt->service_option_id !== null ? (int) $opt->service_option_id : null,
-                        'name' => $opt->service_option_name,
-                        'description' => $opt->service_option_description,
-                    ];
+                        $optArr['service_option'] = [
+                            'id' => $opt->service_option_id !== null ? (int) $opt->service_option_id : null,
+                            'name' => $opt->service_option_name,
+                            'description' => $opt->service_option_description,
+                        ];
 
-                    return $optArr;
-                })->values()->toArray()
-                : [];
+                        return $optArr;
+                    })->values()->toArray()
+                    : [];
 
-            return $arr;
-        })->values()->toArray()
-        : [];
+                return $arr;
+            })->values()->toArray()
+            : [];
 
-    // ✅ Vendor shop block (explicit)
-    $shop = $order->acceptedShop;
+        // ✅ Vendor shop block (explicit)
+        $shop = $order->acceptedShop;
 
-    $distanceKm = null;
-    if (
-        $shop &&
-        is_numeric($order->search_lat) && is_numeric($order->search_lng) &&
-        is_numeric($shop->latitude) && is_numeric($shop->longitude)
-    ) {
-        $distanceKm = $this->distanceKm(
-            (float) $order->search_lat,
-            (float) $order->search_lng,
-            (float) $shop->latitude,
-            (float) $shop->longitude
-        );
+        $distanceKm = null;
+        if (
+            $shop &&
+            is_numeric($order->search_lat) && is_numeric($order->search_lng) &&
+            is_numeric($shop->latitude) && is_numeric($shop->longitude)
+        ) {
+            $distanceKm = $this->distanceKm(
+                (float) $order->search_lat,
+                (float) $order->search_lng,
+                (float) $shop->latitude,
+                (float) $shop->longitude
+            );
+        }
+
+        $payload['vendor_shop'] = $shop ? [
+            'id' => $shop->id,
+            'name' => $shop->name,
+            'profile_photo_url' => $shop->profile_photo_url,
+            'avg_rating' => isset($shop->avg_rating) && $shop->avg_rating !== null
+                ? round((float) $shop->avg_rating, 1)
+                : null,
+            'ratings_count' => (int) ($shop->ratings_count ?? 0),
+            'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
+        ] : null;
+
+        return $payload;
     }
-
-    $payload['vendor_shop'] = $shop ? [
-        'id' => $shop->id,
-        'name' => $shop->name,
-        'profile_photo_url' => $shop->profile_photo_url,
-        'avg_rating' => isset($shop->avg_rating) && $shop->avg_rating !== null
-            ? round((float) $shop->avg_rating, 1)
-            : null,
-        'ratings_count' => (int) ($shop->ratings_count ?? 0),
-        'distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
-    ] : null;
-
-    return $payload;
-}
 
 
 
@@ -991,6 +991,44 @@ class CustomerOrderController extends Controller
     }
 
 
+    public function weightAccepted(Request $request, int $orderId)
+    {
+        $user = $request->user();
+
+        $order = Order::query()->findOrFail($orderId);
+
+        // ✅ Ensure order belongs to logged-in customer
+        if ((int) $order->customer_id !== (int) $user->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        DB::transaction(function () use (&$order, $user) {
+            // ✅ Timeline transition: reviewed -> accepted
+            $this->transition(
+                $order,
+                OrderTimelineKeys::WEIGHT_REVIEWED,
+                OrderTimelineKeys::WEIGHT_ACCEPTED
+            );
+
+            // ✅ Optional: mark approved timestamp if you use it
+            $order->approved_at = now();
+            $order->pricing_status = 'approved';
+            $order->save();
+
+            // ✅ Record timeline event as CUSTOMER
+            app(OrderTimelineRecorder::class)->record(
+                $order,
+                OrderTimelineKeys::WEIGHT_ACCEPTED,
+                'customer',
+                $user->id,
+                []
+            );
+
+            $order = $order->fresh();
+        });
+
+        return response()->json(['data' => $order]);
+    }
 
     public function confirmDelivery(Request $request, Order $order)
     {

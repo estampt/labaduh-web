@@ -183,7 +183,8 @@ Route::prefix('v1')->group(function () {
 
             Route::post('/orders/{order}/cancel', [CustomerOrderController::class, 'cancelOrder']);
 
-            Route::post('/orders/{order}/confirm-delivery', [CustomerOrderController::class, 'confirmDelivery']);
+            Route::post('orders/{order_id}/weight_accepted', [CustomerOrderController::class, 'weightAccepted']);
+            Route::post('/orders/{order}/confirm_delivery', [CustomerOrderController::class, 'confirmDelivery']);
             Route::post('/orders/{order}/feedback', [CustomerOrderController::class, 'feedback']);
 
         });

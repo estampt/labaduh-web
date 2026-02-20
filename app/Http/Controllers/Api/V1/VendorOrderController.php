@@ -51,7 +51,7 @@ class VendorOrderController extends Controller
 
     private function autoApproveIfExpired(Order $order): void
     {
-        if ($order->pricing_status !== 'final_proposed') return;
+        if ($order->pricing_status !== 'approved') return;
         if (!$order->final_proposed_at) return;
 
         $mins = (int)($order->auto_confirm_minutes ?? 30);
@@ -409,20 +409,52 @@ class VendorOrderController extends Controller
                  * =====================================================
                  */
                 if (!empty($validated['notes'])) {
-                    $orderUpdates = [];
 
-                    if (Schema::hasColumn('orders', 'weight_review_notes')) {
+                $orderUpdates = [];
+
+                // =========================================================
+                // NOTES COLUMN (dynamic fallback)
+                // =========================================================
+                if (Schema::hasColumn('orders', 'weight_review_notes')) {
                         $orderUpdates['weight_review_notes'] = $validated['notes'];
+
                     } elseif (Schema::hasColumn('orders', 'pricing_notes')) {
                         $orderUpdates['pricing_notes'] = $validated['notes'];
                     }
 
+                    // =========================================================
+                    // 1️⃣ Always update final_proposed_at (independent)
+                    // =========================================================
+                    if (Schema::hasColumn('orders', 'final_proposed_at')) {
+
+                        $order->pricing_status = 'proposed';
+                        $order->final_proposed_at = now();
+                        $order->save();
+
+                        Log::info('📦 weightReviewed FINAL_PROPOSED_AT_UPDATED', [
+                            'order_id' => $order->id,
+                            'final_proposed_at' => $order->final_proposed_at,
+                        ]);
+                    }
+
+                    // =========================================================
+                    // FINAL PROPOSED AT
+                    // =========================================================
+                    if (Schema::hasColumn('orders', 'final_proposed_at')) {
+                        $orderUpdates['final_proposed_at'] = now();
+                    }
+
+                    // =========================================================
+                    // SAVE IF HAS UPDATES
+                    // =========================================================
                     if (!empty($orderUpdates)) {
+
                         $order->fill($orderUpdates)->save();
 
                         Log::info('📦 weightReviewed ORDER_NOTES_UPDATED', [
                             'order_id' => $order->id,
                             'columns'  => array_keys($orderUpdates),
+                            'final_proposed_at' => $orderUpdates['final_proposed_at'] ?? null,
                         ]);
                     }
                 }
