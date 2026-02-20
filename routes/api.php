@@ -286,6 +286,9 @@ Route::prefix('v1')->group(function () {
              // Retrieve Order
             Route::get('/orders/broadcasted_by_order_id', [VendorOrderBroadcastController::class, 'getBroadCastedOrderByOrderId']);
 
+
+            Route::get('/orders/broadcast_by_id', [VendorOrderBroadcastController::class, 'getBroadcastById']);
+
             // Accept a broadcast (claim the order)
             Route::post('/order-broadcasts/{broadcast}/accept', [VendorOrderBroadcastController::class, 'accept']);
 

@@ -357,4 +357,95 @@ class VendorOrderBroadcastController extends Controller
         ]);
     }
 
+    public function getBroadcastById(Request $request, int $shopId)
+{
+    $perPage = (int) ($request->get('per_page', 10));
+
+    // ✅ New: filter by broadcast_id (required or optional — your choice)
+    $broadcastId = (int) ($request->get('broadcast_id', 0));
+
+    $rows = DB::table('order_broadcasts as ob')
+        ->where('ob.shop_id', $shopId)
+        ->where('ob.status', 'sent')
+
+        // ✅ New: select by broadcast ID specifically
+        ->when($broadcastId > 0, function ($q) use ($broadcastId) {
+            $q->where('ob.id', $broadcastId);
+        })
+
+        // Join orders
+        ->join('orders as o', 'o.id', '=', 'ob.order_id')
+
+        // Prevent showing orders already accepted by other shops
+        ->where(function ($q) use ($shopId) {
+            $q->whereNull('o.accepted_shop_id')
+              ->orWhere('o.accepted_shop_id', $shopId);
+        })
+
+        // Join customer
+        ->join('users as u', 'u.id', '=', 'o.customer_id')
+
+        ->select([
+            'ob.id as broadcast_id',
+            'ob.order_id',
+            'ob.status as broadcast_status',
+            'ob.sent_at',
+
+            'o.status as order_status',
+            'o.pickup_mode',
+            'o.delivery_mode',
+            'o.currency',
+            'o.total',
+            'o.created_at',
+
+            'u.id as customer_id',
+            'u.name as customer_name',
+            'u.profile_photo_url',
+
+            // ✅ customer address
+            'u.address_line1',
+            'u.address_line2',
+        ])
+
+        ->orderByDesc('ob.sent_at')
+        ->orderByDesc('ob.order_id')
+        ->cursorPaginate($perPage);
+
+    $data = collect($rows->items())
+        ->map(function ($r) {
+            return [
+                'broadcast_id' => (int) $r->broadcast_id,
+
+                'broadcast' => [
+                    'broadcast_id' => (int) $r->broadcast_id,
+                    'status' => $r->broadcast_status,
+                    'sent_at' => $r->sent_at,
+                ],
+
+                'order' => [
+                    'status' => $r->order_status,
+                    'pickup_mode' => $r->pickup_mode,
+                    'delivery_mode' => $r->delivery_mode,
+                    'currency' => $r->currency,
+                    'total' => $r->total,
+                    'created_at' => $r->created_at,
+                ],
+
+                'customer' => [
+                    'id' => (int) $r->customer_id,
+                    'name' => $r->customer_name,
+                    'profile_photo_url' => $r->profile_photo_url,
+                    'address_line1' => $r->address_line1,
+                    'address_line2' => $r->address_line2,
+                ],
+            ];
+        })
+        ->values();
+
+    return response()->json([
+        'data' => $data,
+        'cursor' => $rows->nextCursor()?->encode(),
+    ]);
+}
+
 }

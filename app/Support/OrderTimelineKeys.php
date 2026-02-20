@@ -66,6 +66,19 @@ final class OrderTimelineKeys
     }
 
     /**
+     * Terminal / Closed statuses
+     */
+    public static function canCancel(): array
+    {
+        return [
+            self::CREATED,
+            self::PUBLISHED,
+//TODO: To decide if order can be cancelled if vendor already accepted.
+//            self::ACCEPTED,
+        ];
+    }
+
+    /**
      * Active (non-closed)
      */
     public static function active(): array

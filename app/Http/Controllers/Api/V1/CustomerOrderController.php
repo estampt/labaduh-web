@@ -648,42 +648,87 @@ class CustomerOrderController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        // ✅ Idempotent: if already canceled, just return
-        if (($order->status ?? null) === 'canceled') {
-            return response()->json(['data' => $order->fresh()]);
-        }
+        try {
+            $result = DB::transaction(function () use ($order, $user) {
+                // ✅ Prevent race conditions
+                $order = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
 
-        // ✅ Only allow cancel when status is created or published
-        $allowedStatuses = ['created', 'published'];
-        if (!in_array($order->status, $allowedStatuses, true)) {
+                // ✅ Idempotent: if already canceled, also ensure broadcasts are canceled
+                if (($order->status ?? null) === OrderTimelineKeys::CANCELED || ($order->status ?? null) === 'canceled') {
+                    DB::table('order_broadcasts')
+                        ->where('order_id', $order->id)
+                        ->update([
+                            'status' => 'canceled',
+                            'updated_at' => now(),
+                        ]);
+
+                    return [
+                        'ok' => true,
+                        'order' => $order->fresh(),
+                    ];
+                }
+
+                // ✅ Only allow cancel when OrderTimelineKeys::canCancel()
+                // (Assumes canCancel accepts the current status string)
+                if (!OrderTimelineKeys::canCancel($order->status)) {
+                    return [
+                        'ok' => false,
+                        'status' => $order->status,
+                        'message' => 'Order is already in progress and can no longer be canceled.',
+                    ];
+                }
+
+                // ✅ Transition -> canceled
+                // If your transition() requires exact "from", handle both safely:
+                if ($order->status === OrderTimelineKeys::CREATED) {
+                    $this->transition($order, OrderTimelineKeys::CREATED, OrderTimelineKeys::CANCELED);
+                } else {
+                    // If it canCancel() includes PUBLISHED and/or other statuses you still allow,
+                    // adjust this "from" as needed. Keeping your original behavior:
+                    $this->transition($order, OrderTimelineKeys::PUBLISHED, OrderTimelineKeys::CANCELED);
+                }
+
+                // ✅ Update broadcasts: order_broadcasts.status = canceled for this order
+                DB::table('order_broadcasts')
+                    ->where('order_id', $order->id)
+                    ->update([
+                        'status' => 'canceled',
+                        'updated_at' => now(),
+                    ]);
+
+                // ✅ Record timeline as customer cancellation
+                app(OrderTimelineRecorder::class)->record(
+                    $order,
+                    OrderTimelineKeys::CANCELED,
+                    'customer',
+                    $user->id,
+                    [
+                        'shop_id' => $order->shop_id ?? null,
+                        'order_id' => $order->id,
+                        'previous_status' => $order->getOriginal('status'),
+                    ]
+                );
+
+                return [
+                    'ok' => true,
+                    'order' => $order->fresh(),
+                ];
+            });
+
+            if (($result['ok'] ?? false) !== true) {
+                return response()->json([
+                    'message' => $result['message'] ?? 'Order cannot be canceled.',
+                    'status' => $result['status'] ?? ($order->status ?? null),
+                ], 422);
+            }
+
+            return response()->json(['data' => $result['order']]);
+        } catch (\Throwable $e) {
             return response()->json([
-                'message' => "Cannot cancel unless status is: " . implode(', ', $allowedStatuses),
-                'status' => $order->status,
-            ], 422);
+                'message' => 'Failed to cancel order.',
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        // ✅ Transition created/published -> canceled
-        // If your transition() requires exact "from", handle both safely:
-        if ($order->status === OrderTimelineKeys::CREATED) {
-            $this->transition($order, OrderTimelineKeys::CREATED, OrderTimelineKeys::CANCELED);
-        } else {
-            $this->transition($order, OrderTimelineKeys::PUBLISHED, OrderTimelineKeys::CANCELED);
-        }
-
-        // ✅ Record timeline as customer cancellation
-        app(OrderTimelineRecorder::class)->record(
-            $order,
-            OrderTimelineKeys::CANCELED,
-            'customer',
-            $user->id,
-            [
-                'shop_id' => $order->shop_id ?? null,
-                'order_id' => $order->id,
-                'previous_status' => $order->getOriginal('status'), // optional but useful
-            ]
-        );
-
-        return response()->json(['data' => $order->fresh()]);
     }
 
 
