@@ -38,14 +38,14 @@ class ShopService extends Model
         return $this->belongsTo(Service::class, 'service_id');
     }
 
+
     public function options()
     {
         return $this->belongsToMany(\App\Models\ServiceOption::class, 'shop_service_options', 'shop_service_id', 'service_option_id')
             ->withPivot(['price','is_active','sort_order'])
-            ->withTimestamps();
+            ->withTimestamps()
+            ->orderBy('shop_service_options.sort_order');
     }
-
-
 
 
 }

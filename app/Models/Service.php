@@ -43,11 +43,6 @@ class Service extends Model
         return $query->where('is_active', true);
     }
 
-    public function addons()
-    {
-        return $this->belongsToMany(\App\Models\Addon::class, 'service_addons')
-            ->withPivot(['is_active','sort_order'])
-            ->withTimestamps();
-    }
+
 
 }

@@ -241,6 +241,7 @@ Route::prefix('v1')->group(function () {
             //Added by Rehnee on 31-Jan-2026
             //New Services Model
             Route::get   ('services',               [ShopServiceController::class, 'index']);
+
             Route::post  ('services',               [ShopServiceController::class, 'store']);
             Route::get   ('services/{shopService}', [ShopServiceController::class, 'show']);
             Route::put   ('services/{shopService}', [ShopServiceController::class, 'update']);
