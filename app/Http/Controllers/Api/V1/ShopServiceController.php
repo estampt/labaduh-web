@@ -17,7 +17,7 @@ class ShopServiceController extends Controller
             ->where('shop_id', $shop->id)
             ->with([
                 'service',
-                'options.serviceOption', // ✅ include add-ons + master option fields
+                'options', // ✅ options already ARE ServiceOption models (with pivot)
             ]);
 
         if ($request->has('is_active')) {
@@ -35,7 +35,6 @@ class ShopServiceController extends Controller
 
         return response()->json(['data' => $q->get()]);
     }
-
 
     public function store(Request $request, Vendor $vendor, VendorShop $shop)
     {
