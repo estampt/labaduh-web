@@ -68,7 +68,7 @@ class VendorOrderController extends Controller
 
     public function getActiveOrderbyShop(Request $request, int $shopId)
     {
-        $perPage = (int) ($request->get('per_page', 5));
+        $perPage = (int) ($request->get('per_page', 10000));
 
         $orders = Order::query()
             ->select([
@@ -330,289 +330,408 @@ class VendorOrderController extends Controller
         // renamed: markWeightReviewed -> weightReviewed
 
     public function weightReviewed(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
-    {
-        $this->ensureOrderBelongsToShop($order, $shop);
-        $this->autoApproveIfExpired($order);
+{
+    $this->ensureOrderBelongsToShop($order, $shop);
+    $this->autoApproveIfExpired($order);
 
-        $savedPaths = []; // track saved files for cleanup if transaction fails
+    $savedPaths = []; // track saved files for cleanup if transaction fails
 
-        Log::info('📦 weightReviewed START', [
-            'vendor_id' => $vendor->id,
-            'shop_id'   => $shop->id,
-            'order_id'  => $order->id,
-            'has_image' => $request->hasFile('image'),
-            'has_images'=> $request->hasFile('images'),
-        ]);
+    Log::info('📦 weightReviewed START', [
+        'vendor_id' => $vendor->id,
+        'shop_id'   => $shop->id,
+        'order_id'  => $order->id,
+        'has_image' => $request->hasFile('image'),
+        'has_images'=> $request->hasFile('images'),
+    ]);
 
-        try {
-            return DB::transaction(function () use (
-                $request, $vendor, $shop, $order, &$savedPaths
-            ) {
+    try {
+        return DB::transaction(function () use ($request, $vendor, $shop, $order, &$savedPaths) {
 
-                /**
-                 * =====================================================
-                 * 1) Normalize multipart payload
-                 * =====================================================
-                 */
-                $items = $request->input('items');
+            /**
+             * =====================================================
+             * 1) Normalize multipart payload
+             * =====================================================
+             */
+            $items = $request->input('items');
 
-                if (is_string($items)) {
-                    $decoded = json_decode($items, true);
-                    if (json_last_error() === JSON_ERROR_NONE) {
-                        $items = $decoded;
-                    }
-                }
-
-                if (!is_array($items)) {
-                    $items = [];
-                }
-
-                $request->merge(['items' => $items]);
-
-                Log::info('📦 weightReviewed NORMALIZED', [
-                    'vendor_id'    => $vendor->id,
-                    'shop_id'      => $shop->id,
-                    'order_id'     => $order->id,
-                    'items_count'  => is_array($items) ? count($items) : 0,
-                    'notes_exists' => $request->filled('notes'),
-                ]);
-
-                /**
-                 * =====================================================
-                 * 2) Validate
-                 * =====================================================
-                 */
-                $validated = $request->validate([
-                    'notes'     => ['nullable', 'string'],
-
-                    'items'                  => ['nullable', 'array'],
-                    'items.*.order_item_id'  => ['required_with:items', 'integer'],
-                    'items.*.item_qty'       => ['required_with:items', 'numeric', 'min:0.01'],
-                    'items.*.uploaded'       => ['nullable'],
-                    'items.*.notes'          => ['nullable', 'string'],
-
-                    'image'      => ['nullable', 'image', 'max:5120'],
-                    'images'     => ['nullable', 'array', 'max:10'],
-                    'images.*'   => ['image', 'max:5120'],
-                ]);
-
-                Log::info('📦 weightReviewed VALIDATED', [
-                    'vendor_id'   => $vendor->id,
-                    'shop_id'     => $shop->id,
-                    'order_id'    => $order->id,
-                    'items_count' => !empty($validated['items']) ? count($validated['items']) : 0,
-                ]);
-
-                /**
-                 * =====================================================
-                 * 4) Optional: save notes to orders table
-                 * =====================================================
-                 */
-                if (!empty($validated['notes'])) {
-
-                $orderUpdates = [];
-
-                // =========================================================
-                // NOTES COLUMN (dynamic fallback)
-                // =========================================================
-                if (Schema::hasColumn('orders', 'weight_review_notes')) {
-                        $orderUpdates['weight_review_notes'] = $validated['notes'];
-
-                    } elseif (Schema::hasColumn('orders', 'pricing_notes')) {
-                        $orderUpdates['pricing_notes'] = $validated['notes'];
-                    }
-
-                    // =========================================================
-                    // 1️⃣ Always update final_proposed_at (independent)
-                    // =========================================================
-                    if (Schema::hasColumn('orders', 'final_proposed_at')) {
-
-                        $order->pricing_status = 'proposed';
-                        $order->final_proposed_at = now();
-                        $order->save();
-
-                        Log::info('📦 weightReviewed FINAL_PROPOSED_AT_UPDATED', [
-                            'order_id' => $order->id,
-                            'final_proposed_at' => $order->final_proposed_at,
-                        ]);
-                    }
-
-                    // =========================================================
-                    // FINAL PROPOSED AT
-                    // =========================================================
-                    if (Schema::hasColumn('orders', 'final_proposed_at')) {
-                        $orderUpdates['final_proposed_at'] = now();
-                    }
-
-                    // =========================================================
-                    // SAVE IF HAS UPDATES
-                    // =========================================================
-                    if (!empty($orderUpdates)) {
-
-                        $order->fill($orderUpdates)->save();
-
-                        Log::info('📦 weightReviewed ORDER_NOTES_UPDATED', [
-                            'order_id' => $order->id,
-                            'columns'  => array_keys($orderUpdates),
-                            'final_proposed_at' => $orderUpdates['final_proposed_at'] ?? null,
-                        ]);
-                    }
-                }
-
-                /**
-                 * =====================================================
-                 * 5) Update qty_actual per order item (from items[])
-                 * =====================================================
-                 */
-                $updatedItems = 0;
-
-                if (!empty($validated['items']) && method_exists($order, 'items')) {
-                    $normalizedItems = collect($validated['items'])->map(function ($row) {
-                        return [
-                            'order_item_id' => (int) ($row['order_item_id'] ?? 0),
-                            'item_qty'      => (float) ($row['item_qty'] ?? 0),
-                            'uploaded'      => filter_var($row['uploaded'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                            'notes'         => $row['notes'] ?? null,
-                        ];
-                    })->filter(fn ($r) => $r['order_item_id'] > 0 && $r['item_qty'] > 0);
-
-                    $itemsById = $normalizedItems->keyBy('order_item_id');
-
-                    $order->items()
-                        ->whereIn('id', $itemsById->keys())
-                        ->get()
-                        ->each(function ($item) use ($itemsById, &$updatedItems) {
-                            $row = $itemsById[$item->id];
-
-                            if (Schema::hasColumn('order_items', 'qty_actual')) {
-                                $item->qty_actual = $row['item_qty'];
-                            } elseif (Schema::hasColumn('order_items', 'qty')) {
-                                $item->qty = $row['item_qty'];
-                            }
-
-                            $item->save();
-                            $updatedItems++;
-                        });
-
-                    Log::info('📦 weightReviewed ITEMS_UPDATED', [
-                        'order_id'       => $order->id,
-                        'updated_items'  => $updatedItems,
-                        'requested_ids'  => $itemsById->keys()->values()->all(),
-                    ]);
-                }
-
-                /**
-                 * =====================================================
-                 * 6) Upload photos (image + images[])
-                 * =====================================================
-                 */
-                $savedAttachments = [];
-                $files = [];
-
-                if ($request->hasFile('image')) {
-                    $files[] = $request->file('image');
-                }
-
-                if ($request->hasFile('images')) {
-                    foreach ((array) $request->file('images') as $f) {
-                        $files[] = $f;
-                    }
-                }
-
-                if (!empty($files)) {
-                    Log::info('📦 weightReviewed UPLOAD_START', [
-                        'order_id'    => $order->id,
-                        'files_count' => count($files),
-                    ]);
-
-                    foreach ($files as $file) {
-                        $path = $file->store("orders/{$order->id}/weight-review", 'public');
-                        $savedPaths[] = $path;
-
-                        $savedAttachments[] = MediaAttachment::create([
-                            'owner_type' => Order::class,
-                            'owner_id'   => $order->id,
-                            'disk'       => 'public',
-                            'path'       => $path,
-                            'mime'       => $file->getMimeType(),
-                            'size_bytes' => $file->getSize(),
-                            'category'   => MediaAttachment::CATEGORY_WEIGHT_REVIEW,
-                        ]);
-                    }
-
-                    Log::info('📦 weightReviewed UPLOAD_DONE', [
-                        'order_id'        => $order->id,
-                        'saved_count'     => count($savedAttachments),
-                        'saved_paths'     => $savedPaths,
-                    ]);
-                }
-
-                /**
-                 * =====================================================
-                 * 3) Transition + timeline
-                 * =====================================================
-                 */
-                $prevStatus = $order->status;
-
-                $this->transition($order, OrderTimelineKeys::PICKED_UP, OrderTimelineKeys::WEIGHT_REVIEWED);
-
-                app(OrderTimelineRecorder::class)->record(
-                    $order,
-                    OrderTimelineKeys::WEIGHT_REVIEWED,
-                    'vendor',
-                    $vendor->id,
-                    ['shop_id' => $shop->id]
-                );
-
-                Log::info('📦 weightReviewed STATUS_MOVED', [
-                    'order_id'    => $order->id,
-                    'from_status' => $prevStatus,
-                    'to_status'   => $order->fresh()->status,
-                ]);
-
-                /**
-                 * =====================================================
-                 * 7) Return refreshed order
-                 * =====================================================
-                 */
-                $orderFresh = $order->fresh()->loadMissing('media');
-
-                Log::info('✅ weightReviewed SUCCESS', [
-                    'vendor_id'        => $vendor->id,
-                    'shop_id'          => $shop->id,
-                    'order_id'         => $order->id,
-                    'updated_items'    => $updatedItems,
-                    'uploaded_files'   => count($savedPaths),
-                ]);
-
-                return response()->json([
-                    'data' => $orderFresh,
-                ]);
-            }, 3); // retries for deadlocks
-        } catch (\Throwable $e) {
-            // Best-effort cleanup for files saved before DB rollback
-            if (!empty($savedPaths)) {
-                foreach ($savedPaths as $p) {
-                    try {
-                        Storage::disk('public')->delete($p);
-                    } catch (\Throwable $ignored) {
-                        // ignore cleanup errors
-                    }
+            if (is_string($items)) {
+                $decoded = json_decode($items, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $items = $decoded;
                 }
             }
 
-            Log::error('❌ weightReviewed FAILED', [
-                'vendor_id' => $vendor->id,
-                'shop_id'   => $shop->id,
-                'order_id'  => $order->id,
-                'error'     => $e->getMessage(),
-                'class'     => get_class($e),
+            if (!is_array($items)) {
+                $items = [];
+            }
+
+            $request->merge(['items' => $items]);
+
+            /**
+             * =====================================================
+             * 2) Validate
+             * =====================================================
+             */
+            $validated = $request->validate([
+                'notes'     => ['nullable', 'string'],
+
+                'items'                  => ['nullable', 'array'],
+                'items.*.order_item_id'  => ['required_with:items', 'integer'],
+                'items.*.item_qty'       => ['required_with:items', 'numeric', 'min:0.01'],
+                'items.*.uploaded'       => ['nullable'],
+                'items.*.notes'          => ['nullable', 'string'],
+
+                // optional order-level adjustments
+                'delivery_fee' => ['nullable', 'numeric', 'min:0'],
+                'service_fee'  => ['nullable', 'numeric', 'min:0'],
+                'discount'     => ['nullable', 'numeric', 'min:0'],
+
+                'image'      => ['nullable', 'image', 'max:5120'],
+                'images'     => ['nullable', 'array', 'max:10'],
+                'images.*'   => ['image', 'max:5120'],
             ]);
 
-            throw $e; // let Laravel return proper error (422/500/etc)
-        }
-    }
+            /**
+             * =====================================================
+             * 3) Update order notes / timestamps / optional fees
+             * =====================================================
+             */
+            $orderUpdates = [];
 
+            if (!empty($validated['notes'])) {
+                if (Schema::hasColumn('orders', 'weight_review_notes')) {
+                    $orderUpdates['weight_review_notes'] = $validated['notes'];
+                } elseif (Schema::hasColumn('orders', 'pricing_notes')) {
+                    $orderUpdates['pricing_notes'] = $validated['notes'];
+                }
+            }
+
+            if (Schema::hasColumn('orders', 'final_proposed_at')) {
+                $orderUpdates['final_proposed_at'] = now();
+            }
+            if (Schema::hasColumn('orders', 'pricing_status')) {
+                $orderUpdates['pricing_status'] = 'proposed';
+            }
+
+            if (array_key_exists('delivery_fee', $validated) && $validated['delivery_fee'] !== null) {
+                if (Schema::hasColumn('orders', 'delivery_fee')) {
+                    $orderUpdates['delivery_fee'] = (float) $validated['delivery_fee'];
+                }
+            }
+            if (array_key_exists('service_fee', $validated) && $validated['service_fee'] !== null) {
+                if (Schema::hasColumn('orders', 'service_fee')) {
+                    $orderUpdates['service_fee'] = (float) $validated['service_fee'];
+                }
+            }
+            if (array_key_exists('discount', $validated) && $validated['discount'] !== null) {
+                if (Schema::hasColumn('orders', 'discount')) {
+                    $orderUpdates['discount'] = (float) $validated['discount'];
+                }
+            }
+
+            if (!empty($orderUpdates)) {
+                $order->fill($orderUpdates)->save();
+            }
+
+            /**
+             * =====================================================
+             * ✅ Helper: compute item price using snapshot pricing model
+             * Matches your store() intent (min, min_price, price_per_uom, pricing_model)
+             * =====================================================
+             */
+            $computeItemBasePrice = function ($item, float $qtyActual): float {
+
+                // Snapshot fields you store on order_items
+                $pricingModel = (string) ($item->pricing_model ?? '');
+                $minimum      = (float) ($item->minimum ?? 0);
+                $minPrice     = (float) ($item->min_price ?? 0);
+                $ppu          = (float) ($item->price_per_uom ?? 0);
+
+                // Default (simple): qty * price_per_uom
+                $raw = $qtyActual * $ppu;
+
+                // Handle common models (safe + matches stored snapshot fields)
+                // Adjust here if you have more models.
+                if ($pricingModel === 'tiered_min_plus' || $pricingModel === 'min_plus') {
+                    // Example meaning:
+                    // - Must meet minimum qty and minimum price baseline
+                    // - charge qty*ppu but never below minPrice
+                    // - also ensure qty at least minimum when computing baseline
+                    $effectiveQty = max($qtyActual, $minimum > 0 ? $minimum : $qtyActual);
+                    $raw = $effectiveQty * $ppu;
+
+                    if ($minPrice > 0) {
+                        $raw = max($raw, $minPrice);
+                    }
+                    return $raw;
+                }
+
+                if ($pricingModel === 'flat_minimum') {
+                    // Always at least minPrice (or qty minimum * ppu)
+                    if ($minPrice > 0) return max($raw, $minPrice);
+                    if ($minimum > 0) return max($raw, $minimum * $ppu);
+                    return $raw;
+                }
+
+                // For 'per_uom', 'simple', unknown -> default
+                if ($minPrice > 0) {
+                    // In case some models rely on minPrice without a known key
+                    $raw = max($raw, $minPrice);
+                }
+                return $raw;
+            };
+
+            /**
+             * =====================================================
+             * 4) ✅ Update order_items (qty/qty_actual) then recompute computed_price/final_price
+             *    Using store()-style subtotal:
+             *      item price (based on qty_actual + snapshot ppu/min) + sum(option computed_price)
+             * =====================================================
+             */
+            $updatedItems = 0;
+
+            if (!empty($validated['items']) && method_exists($order, 'items')) {
+
+                $normalizedItems = collect($validated['items'])->map(function ($row) {
+                    return [
+                        'order_item_id' => (int) ($row['order_item_id'] ?? 0),
+                        'item_qty'      => (float) ($row['item_qty'] ?? 0),
+                    ];
+                })->filter(fn ($r) => $r['order_item_id'] > 0 && $r['item_qty'] > 0);
+
+                $itemsById = $normalizedItems->keyBy('order_item_id');
+
+                $order->items()
+                    ->whereIn('id', $itemsById->keys())
+                    ->get()
+                    ->each(function ($item) use ($itemsById, &$updatedItems, $computeItemBasePrice) {
+
+                        $row = $itemsById[$item->id];
+                        $qty = (float) $row['item_qty'];
+
+                        // qty + qty_actual
+                        if (Schema::hasColumn('order_items', 'qty')) {
+                            $item->qty = $qty;
+                        }
+                        if (Schema::hasColumn('order_items', 'qty_actual')) {
+                            $item->qty_actual = $qty;
+                        }
+
+                        // ✅ options sum (store() adds options to subtotal)
+                        $optionsSum = 0.0;
+                        if (Schema::hasTable('order_item_options')) {
+                            // prefer computed_price, fallback to price
+                            if (Schema::hasColumn('order_item_options', 'computed_price')) {
+                                $optionsSum = (float) DB::table('order_item_options')
+                                    ->where('order_item_id', $item->id)
+                                    ->sum('computed_price');
+                            } elseif (Schema::hasColumn('order_item_options', 'price')) {
+                                $optionsSum = (float) DB::table('order_item_options')
+                                    ->where('order_item_id', $item->id)
+                                    ->sum('price');
+                            }
+                        }
+
+                        // ✅ base price from snapshot pricing fields
+                        $base = $computeItemBasePrice($item, $qty);
+
+                        // ✅ store()-style: item computed_price should represent the item-only computed
+                        // and order subtotal adds options separately.
+                        // BUT you asked earlier: "include in the calculation using computed_price where order_item_id = order_item.id"
+                        // So we will store item.computed_price as (base + optionsSum) to keep final_price fully inclusive.
+                        $itemComputed = $base + $optionsSum;
+
+                        if (Schema::hasColumn('order_items', 'computed_price')) {
+                            $item->computed_price = $itemComputed;
+                        }
+                        if (Schema::hasColumn('order_items', 'final_price')) {
+                            $item->final_price = $itemComputed;
+                        }
+
+                        $item->save();
+                        $updatedItems++;
+                    });
+            }
+
+            /**
+             * =====================================================
+             * 5) ✅ Re-read items after update, sum qty, compute totals
+             *    IMPORTANT: get delivery_fee/service_fee AFTER it has been updated
+             * =====================================================
+             */
+            $itemsFresh = method_exists($order, 'items') ? $order->items()->get() : collect([]);
+
+            $sumQty = $itemsFresh->sum(function ($it) {
+                if (Schema::hasColumn('order_items', 'qty_actual') && $it->qty_actual !== null) {
+                    return (float) $it->qty_actual;
+                }
+                if (Schema::hasColumn('order_items', 'qty') && $it->qty !== null) {
+                    return (float) $it->qty;
+                }
+                return 0.0;
+            });
+
+            // Since we stored item.final_price inclusive of options, subtotal is just sum(final_price)
+            $subtotal = $itemsFresh->sum(function ($it) {
+                if (Schema::hasColumn('order_items', 'final_price') && $it->final_price !== null) {
+                    return (float) $it->final_price;
+                }
+                if (Schema::hasColumn('order_items', 'computed_price') && $it->computed_price !== null) {
+                    return (float) $it->computed_price;
+                }
+                return 0.0;
+            });
+
+            $orderRefreshed = $order->fresh(); // ✅ ensure we use updated fees
+
+            $deliveryFee = (Schema::hasColumn('orders', 'delivery_fee')) ? (float) ($orderRefreshed->delivery_fee ?? 0) : 0.0;
+            $serviceFee  = (Schema::hasColumn('orders', 'service_fee'))  ? (float) ($orderRefreshed->service_fee ?? 0)  : 0.0;
+            $discount    = (Schema::hasColumn('orders', 'discount'))     ? (float) ($orderRefreshed->discount ?? 0)     : 0.0;
+
+            $subtotal = round($subtotal, 2);
+            $total = round(max(0, $subtotal + $deliveryFee + $serviceFee - $discount), 2);
+
+            $orderMoneyUpdates = [];
+
+            if (Schema::hasColumn('orders', 'estimated_subtotal')) {
+                $orderMoneyUpdates['estimated_subtotal'] = $subtotal;
+            }
+            if (Schema::hasColumn('orders', 'subtotal')) {
+                $orderMoneyUpdates['subtotal'] = $subtotal;
+            }
+            if (Schema::hasColumn('orders', 'final_subtotal')) {
+                $orderMoneyUpdates['final_subtotal'] = $subtotal;
+            }
+
+            if (Schema::hasColumn('orders', 'estimated_total')) {
+                $orderMoneyUpdates['estimated_total'] = $total;
+            }
+            if (Schema::hasColumn('orders', 'total')) {
+                $orderMoneyUpdates['total'] = $total;
+            }
+            if (Schema::hasColumn('orders', 'final_total')) {
+                $orderMoneyUpdates['final_total'] = $total;
+            }
+
+            if (Schema::hasColumn('orders', 'final_qty')) {
+                $orderMoneyUpdates['final_qty'] = $sumQty;
+            }
+
+            if (!empty($orderMoneyUpdates)) {
+                $order->fill($orderMoneyUpdates)->save();
+            }
+
+            Log::info('📦 weightReviewed TOTALS_RECALCULATED', [
+                'order_id'     => $order->id,
+                'sum_qty'      => $sumQty,
+                'subtotal'     => $subtotal,
+                'delivery_fee' => $deliveryFee,
+                'service_fee'  => $serviceFee,
+                'discount'     => $discount,
+                'total'        => $total,
+                'updated_cols' => array_keys($orderMoneyUpdates),
+            ]);
+
+            /**
+             * =====================================================
+             * 6) Upload photos (image + images[])
+             * =====================================================
+             */
+            $files = [];
+
+            if ($request->hasFile('image')) {
+                $files[] = $request->file('image');
+            }
+
+            if ($request->hasFile('images')) {
+                foreach ((array) $request->file('images') as $f) {
+                    $files[] = $f;
+                }
+            }
+
+            if (!empty($files)) {
+                foreach ($files as $file) {
+                    $path = $file->store("orders/{$order->id}/weight-review", 'public');
+                    $savedPaths[] = $path;
+
+                    MediaAttachment::create([
+                        'owner_type' => Order::class,
+                        'owner_id'   => $order->id,
+                        'disk'       => 'public',
+                        'path'       => $path,
+                        'mime'       => $file->getMimeType(),
+                        'size_bytes' => $file->getSize(),
+                        'category'   => MediaAttachment::CATEGORY_WEIGHT_REVIEW,
+                    ]);
+                }
+            }
+
+            /**
+             * =====================================================
+             * 7) Transition + timeline
+             * =====================================================
+             */
+            $prevStatus = $order->status;
+
+            $this->transition($order, OrderTimelineKeys::PICKED_UP, OrderTimelineKeys::WEIGHT_REVIEWED);
+
+            app(OrderTimelineRecorder::class)->record(
+                $order,
+                OrderTimelineKeys::WEIGHT_REVIEWED,
+                'vendor',
+                $vendor->id,
+                ['shop_id' => $shop->id]
+            );
+
+            Log::info('📦 weightReviewed STATUS_MOVED', [
+                'order_id'    => $order->id,
+                'from_status' => $prevStatus,
+                'to_status'   => $order->fresh()->status,
+            ]);
+
+            /**
+             * =====================================================
+             * 8) Return refreshed order
+             * =====================================================
+             */
+            $orderFresh = $order->fresh()->loadMissing('media');
+
+            Log::info('✅ weightReviewed SUCCESS', [
+                'vendor_id'        => $vendor->id,
+                'shop_id'          => $shop->id,
+                'order_id'         => $order->id,
+                'updated_items'    => $updatedItems,
+                'uploaded_files'   => count($savedPaths),
+            ]);
+
+            return response()->json([
+                'data' => $orderFresh,
+            ]);
+        }, 3);
+    } catch (\Throwable $e) {
+
+        // Best-effort cleanup for files saved before DB rollback
+        if (!empty($savedPaths)) {
+            foreach ($savedPaths as $p) {
+                try {
+                    Storage::disk('public')->delete($p);
+                } catch (\Throwable $ignored) {
+                    // ignore cleanup errors
+                }
+            }
+        }
+
+        Log::error('❌ weightReviewed FAILED', [
+            'vendor_id' => $vendor->id,
+            'shop_id'   => $shop->id,
+            'order_id'  => $order->id,
+            'error'     => $e->getMessage(),
+            'class'     => get_class($e),
+        ]);
+
+        throw $e;
+    }
+}
 
 
     // renamed: markWeightAccepted -> weightAccepted
