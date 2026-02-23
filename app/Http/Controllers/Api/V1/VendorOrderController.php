@@ -8,8 +8,11 @@ use App\Models\Vendor;
 use App\Models\VendorShop;
 use App\Models\MediaAttachment;
 
+use App\Services\AppSettings;
 use App\Services\OrderTimelineRecorder;
+
 use App\Support\OrderTimelineKeys;
+use App\Support\Pricing;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -329,7 +332,9 @@ class VendorOrderController extends Controller
 
         // renamed: markWeightReviewed -> weightReviewed
 
-    public function weightReviewed(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
+
+
+public function weightReviewed(Request $request, Vendor $vendor, VendorShop $shop, Order $order)
 {
     $this->ensureOrderBelongsToShop($order, $shop);
     $this->autoApproveIfExpired($order);
@@ -435,57 +440,9 @@ class VendorOrderController extends Controller
 
             /**
              * =====================================================
-             * ✅ Helper: compute item price using snapshot pricing model
-             * Matches your store() intent (min, min_price, price_per_uom, pricing_model)
-             * =====================================================
-             */
-            $computeItemBasePrice = function ($item, float $qtyActual): float {
-
-                // Snapshot fields you store on order_items
-                $pricingModel = (string) ($item->pricing_model ?? '');
-                $minimum      = (float) ($item->minimum ?? 0);
-                $minPrice     = (float) ($item->min_price ?? 0);
-                $ppu          = (float) ($item->price_per_uom ?? 0);
-
-                // Default (simple): qty * price_per_uom
-                $raw = $qtyActual * $ppu;
-
-                // Handle common models (safe + matches stored snapshot fields)
-                // Adjust here if you have more models.
-                if ($pricingModel === 'tiered_min_plus' || $pricingModel === 'min_plus') {
-                    // Example meaning:
-                    // - Must meet minimum qty and minimum price baseline
-                    // - charge qty*ppu but never below minPrice
-                    // - also ensure qty at least minimum when computing baseline
-                    $effectiveQty = max($qtyActual, $minimum > 0 ? $minimum : $qtyActual);
-                    $raw = $effectiveQty * $ppu;
-
-                    if ($minPrice > 0) {
-                        $raw = max($raw, $minPrice);
-                    }
-                    return $raw;
-                }
-
-                if ($pricingModel === 'flat_minimum') {
-                    // Always at least minPrice (or qty minimum * ppu)
-                    if ($minPrice > 0) return max($raw, $minPrice);
-                    if ($minimum > 0) return max($raw, $minimum * $ppu);
-                    return $raw;
-                }
-
-                // For 'per_uom', 'simple', unknown -> default
-                if ($minPrice > 0) {
-                    // In case some models rely on minPrice without a known key
-                    $raw = max($raw, $minPrice);
-                }
-                return $raw;
-            };
-
-            /**
-             * =====================================================
-             * 4) ✅ Update order_items (qty/qty_actual) then recompute computed_price/final_price
-             *    Using store()-style subtotal:
-             *      item price (based on qty_actual + snapshot ppu/min) + sum(option computed_price)
+             * 4) ✅ Update order_items qty/qty_actual + recompute item prices
+             * IMPORTANT: order_items.computed_price/final_price should be ITEM-ONLY
+             * Options are computed separately (same as store()).
              * =====================================================
              */
             $updatedItems = 0;
@@ -504,7 +461,7 @@ class VendorOrderController extends Controller
                 $order->items()
                     ->whereIn('id', $itemsById->keys())
                     ->get()
-                    ->each(function ($item) use ($itemsById, &$updatedItems, $computeItemBasePrice) {
+                    ->each(function ($item) use ($itemsById, &$updatedItems) {
 
                         $row = $itemsById[$item->id];
                         $qty = (float) $row['item_qty'];
@@ -517,35 +474,27 @@ class VendorOrderController extends Controller
                             $item->qty_actual = $qty;
                         }
 
-                        // ✅ options sum (store() adds options to subtotal)
-                        $optionsSum = 0.0;
-                        if (Schema::hasTable('order_item_options')) {
-                            // prefer computed_price, fallback to price
-                            if (Schema::hasColumn('order_item_options', 'computed_price')) {
-                                $optionsSum = (float) DB::table('order_item_options')
-                                    ->where('order_item_id', $item->id)
-                                    ->sum('computed_price');
-                            } elseif (Schema::hasColumn('order_item_options', 'price')) {
-                                $optionsSum = (float) DB::table('order_item_options')
-                                    ->where('order_item_id', $item->id)
-                                    ->sum('price');
-                            }
-                        }
+                        // ✅ Use Pricing::computeComputedPrice() (your universal formula)
+                        $minimum  = (float) ($item->minimum ?? 0);
+                        $minPrice = (float) ($item->min_price ?? 0);
+                        $ppu      = (float) ($item->price_per_uom ?? 0);
 
-                        // ✅ base price from snapshot pricing fields
-                        $base = $computeItemBasePrice($item, $qty);
+                        $itemComputed = Pricing::computeComputedPrice(
+                            qty: $qty,
+                            minimum: $minimum,
+                            minPrice: $minPrice,
+                            pricePerUom: $ppu
+                        );
 
-                        // ✅ store()-style: item computed_price should represent the item-only computed
-                        // and order subtotal adds options separately.
-                        // BUT you asked earlier: "include in the calculation using computed_price where order_item_id = order_item.id"
-                        // So we will store item.computed_price as (base + optionsSum) to keep final_price fully inclusive.
-                        $itemComputed = $base + $optionsSum;
-
+                        // ✅ ITEM-ONLY (do NOT include optionsSum here)
                         if (Schema::hasColumn('order_items', 'computed_price')) {
                             $item->computed_price = $itemComputed;
                         }
                         if (Schema::hasColumn('order_items', 'final_price')) {
                             $item->final_price = $itemComputed;
+                        }
+                        if (Schema::hasColumn('order_items', 'estimated_price')) {
+                            $item->estimated_price = $itemComputed;
                         }
 
                         $item->save();
@@ -555,8 +504,10 @@ class VendorOrderController extends Controller
 
             /**
              * =====================================================
-             * 5) ✅ Re-read items after update, sum qty, compute totals
-             *    IMPORTANT: get delivery_fee/service_fee AFTER it has been updated
+             * 5) ✅ Recompute order totals like store():
+             * subtotal = sum(items) + sum(options)
+             * total = subtotal + delivery_fee + service_fee - discount
+             * IMPORTANT: pull delivery_fee/service_fee AFTER updates (fresh order)
              * =====================================================
              */
             $itemsFresh = method_exists($order, 'items') ? $order->items()->get() : collect([]);
@@ -571,8 +522,7 @@ class VendorOrderController extends Controller
                 return 0.0;
             });
 
-            // Since we stored item.final_price inclusive of options, subtotal is just sum(final_price)
-            $subtotal = $itemsFresh->sum(function ($it) {
+            $itemsSubtotal = $itemsFresh->sum(function ($it) {
                 if (Schema::hasColumn('order_items', 'final_price') && $it->final_price !== null) {
                     return (float) $it->final_price;
                 }
@@ -582,13 +532,29 @@ class VendorOrderController extends Controller
                 return 0.0;
             });
 
-            $orderRefreshed = $order->fresh(); // ✅ ensure we use updated fees
+            $optionsSubtotal = 0.0;
+            if (Schema::hasTable('order_item_options') && $itemsFresh->isNotEmpty()) {
+                $itemIds = $itemsFresh->pluck('id')->all();
+
+                if (Schema::hasColumn('order_item_options', 'computed_price')) {
+                    $optionsSubtotal = (float) DB::table('order_item_options')
+                        ->whereIn('order_item_id', $itemIds)
+                        ->sum('computed_price');
+                } elseif (Schema::hasColumn('order_item_options', 'price')) {
+                    $optionsSubtotal = (float) DB::table('order_item_options')
+                        ->whereIn('order_item_id', $itemIds)
+                        ->sum('price');
+                }
+            }
+
+            $subtotal = round($itemsSubtotal + $optionsSubtotal, 2);
+
+            $orderRefreshed = $order->fresh(); // ✅ use updated fees
 
             $deliveryFee = (Schema::hasColumn('orders', 'delivery_fee')) ? (float) ($orderRefreshed->delivery_fee ?? 0) : 0.0;
             $serviceFee  = (Schema::hasColumn('orders', 'service_fee'))  ? (float) ($orderRefreshed->service_fee ?? 0)  : 0.0;
             $discount    = (Schema::hasColumn('orders', 'discount'))     ? (float) ($orderRefreshed->discount ?? 0)     : 0.0;
 
-            $subtotal = round($subtotal, 2);
             $total = round(max(0, $subtotal + $deliveryFee + $serviceFee - $discount), 2);
 
             $orderMoneyUpdates = [];
@@ -617,19 +583,22 @@ class VendorOrderController extends Controller
                 $orderMoneyUpdates['final_qty'] = $sumQty;
             }
 
+
             if (!empty($orderMoneyUpdates)) {
                 $order->fill($orderMoneyUpdates)->save();
             }
 
             Log::info('📦 weightReviewed TOTALS_RECALCULATED', [
-                'order_id'     => $order->id,
-                'sum_qty'      => $sumQty,
-                'subtotal'     => $subtotal,
-                'delivery_fee' => $deliveryFee,
-                'service_fee'  => $serviceFee,
-                'discount'     => $discount,
-                'total'        => $total,
-                'updated_cols' => array_keys($orderMoneyUpdates),
+                'order_id'        => $order->id,
+                'sum_qty'         => $sumQty,
+                'items_subtotal'  => round($itemsSubtotal, 2),
+                'options_subtotal'=> round($optionsSubtotal, 2),
+                'subtotal'        => $subtotal,
+                'delivery_fee'    => $deliveryFee,
+                'service_fee'     => $serviceFee,
+                'discount'        => $discount,
+                'total'           => $total,
+                'updated_cols'    => array_keys($orderMoneyUpdates),
             ]);
 
             /**
@@ -671,13 +640,38 @@ class VendorOrderController extends Controller
              * 7) Transition + timeline
              * =====================================================
              */
+
+            $orderUpdates = [];
             $prevStatus = $order->status;
 
-            $this->transition($order, OrderTimelineKeys::PICKED_UP, OrderTimelineKeys::WEIGHT_REVIEWED);
+            $settings = app(AppSettings::class);
+
+            $weightAutoApprove = (bool) $settings->get(
+                'system.weight_auto_approve',
+                false // default if not set
+            );
+
+            $nextStatus = OrderTimelineKeys::WEIGHT_REVIEWED;
+
+            if ($weightAutoApprove) {
+
+                // ✅ System auto-approval fields
+                $orderUpdates['approved_at'] = now();
+                $orderUpdates['pricing_status'] = 'auto_approved';
+                $orderUpdates['pricing_notes'] = 'System Approved';
+
+                $order->fill($orderUpdates)->save();
+
+                $nextStatus = OrderTimelineKeys::WEIGHT_ACCEPTED;
+            }
+
+
+
+            $this->transition($order, OrderTimelineKeys::PICKED_UP, $nextStatus);
 
             app(OrderTimelineRecorder::class)->record(
                 $order,
-                OrderTimelineKeys::WEIGHT_REVIEWED,
+                $nextStatus,
                 'vendor',
                 $vendor->id,
                 ['shop_id' => $shop->id]

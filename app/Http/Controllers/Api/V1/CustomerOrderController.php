@@ -8,6 +8,7 @@ use App\Models\OrderBroadcast;
 use App\Models\VendorShop;
 use App\Models\MediaAttachment;
 
+use App\Support\Pricing;
 use App\Support\OrderTimelineKeys;
 use App\Services\OrderTimelineRecorder;
 use App\Services\OrderTimelineService;
@@ -435,7 +436,6 @@ class CustomerOrderController extends Controller
         ]);
     }
 
-
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -462,12 +462,12 @@ class CustomerOrderController extends Controller
             'items.*.qty' => ['required','numeric','min:0.01'],
             'items.*.uom' => ['nullable','string','max:16'],
 
-            // snapshot pricing
+            // snapshot pricing (✅ backend computes computed_price)
             'items.*.pricing_model' => ['nullable','string','max:32'],
             'items.*.minimum' => ['nullable','numeric'],
             'items.*.min_price' => ['nullable','numeric'],
             'items.*.price_per_uom' => ['nullable','numeric'],
-            'items.*.computed_price' => ['required','numeric','min:0'],
+            'items.*.computed_price' => ['nullable','numeric','min:0'], // optional for backward compat
 
             'items.*.options' => ['nullable','array'],
             'items.*.options.*.service_option_id' => ['required','integer','exists:service_options,id'],
@@ -527,8 +527,6 @@ class CustomerOrderController extends Controller
                 'pickup_window_end' => $data['pickup_window_end'] ?? null,
                 'delivery_mode' => $data['delivery_mode'],
 
-                //'pickup_window_start' => computeDeliveryDateTime($data['delivery_mode'],$scheduledDate),
-
                 'pickup_address_id' => $data['pickup_address_id'] ?? null,
                 'delivery_address_id' => $data['delivery_address_id'] ?? null,
                 'pickup_address_snapshot' => $data['pickup_address_snapshot'] ?? null,
@@ -543,62 +541,53 @@ class CustomerOrderController extends Controller
                 'notes' => $data['notes'] ?? null,
             ]);
 
-            $subtotal = 0;
+            $subtotal = 0.0;
 
             foreach ($data['items'] as $it) {
                 $serviceRow = $services->get((int) $it['service_id']);
 
-                $item = $order->items()->create([
-                    'service_id' => $it['service_id'],
+                // ✅ Build snapshot (includes backend computed_price)
+                $snap = Pricing::makeServiceItemSnapshot($it, $serviceRow);
 
-                    // ✅ NEW: snapshot fields stored on order_items
-                    'service_name' => $serviceRow?->name,
-                    'service_description' => $serviceRow?->description,
+                $item = $order->items()->create(array_merge(
+                    ['service_id' => $it['service_id']],
+                    $snap
+                ));
 
-                    'qty' => $it['qty'],
-                    'qty_estimated' => $it['qty'],
-                    'qty_actual' => $it['qty'],
-                    'uom' => $it['uom'] ?? null,
-                    'pricing_model' => $it['pricing_model'] ?? null,
-                    'minimum' => $it['minimum'] ?? null,
-                    'min_price' => $it['min_price'] ?? null,
-                    'price_per_uom' => $it['price_per_uom'] ?? null,
-                    'computed_price' => $it['computed_price'],
-                    'estimated_price' => $it['computed_price'],
-                    'final_price' => $it['computed_price'],
-                ]);
+                $subtotal += (float) $snap['computed_price'];
 
-                $subtotal += (float) $it['computed_price'];
-
+                // Options subtotal (same behavior as your current store())
                 foreach (($it['options'] ?? []) as $opt) {
                     $row = $serviceOptions->get((int) $opt['service_option_id']);
+
+                    $optComputed = (float) ($opt['computed_price'] ?? $opt['price']);
 
                     $item->options()->create([
                         'service_option_id' => $opt['service_option_id'],
                         'price' => $opt['price'],
                         'is_required' => (bool) ($opt['is_required'] ?? false),
-                        'computed_price' => $opt['computed_price'] ?? $opt['price'],
+                        'computed_price' => $optComputed,
 
-                        // ✅ snapshot fields stored on order_item_options
                         'service_option_name' => $row?->name,
                         'service_option_description' => $row?->description,
                     ]);
 
-                    $subtotal += (float) ($opt['computed_price'] ?? $opt['price']);
+                    $subtotal += $optComputed;
                 }
             }
 
             // Placeholder fees (replace later)
             $deliveryFee = 49.00;
             $serviceFee = 15.00;
-            $discount = 0;
+            $discount = 0.00;
 
+            $subtotal = round($subtotal, 2);
             $total = round($subtotal + $deliveryFee + $serviceFee - $discount, 2);
 
             $order->update([
-                'estimated_subtotal' => round($subtotal, 2),
-                'subtotal' => round($subtotal, 2),
-                'final_subtotal' => round($subtotal, 2),
+                'estimated_subtotal' => $subtotal,
+                'subtotal' => $subtotal,
+                'final_subtotal' => $subtotal,
 
                 'delivery_fee' => $deliveryFee,
                 'service_fee' => $serviceFee,
@@ -620,7 +609,6 @@ class CustomerOrderController extends Controller
             return $order;
         });
 
-        // ✅ load snapshot fields too
         return response()->json([
             'data' => $order->load([
                 'items' => function ($q) {
@@ -662,8 +650,6 @@ class CustomerOrderController extends Controller
             ]),
         ]);
     }
-
-
 
 
     private function withinRadiusKm(
