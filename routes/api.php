@@ -47,6 +47,11 @@ use App\Http\Controllers\Api\V1\AdminServiceOptionController;
 use App\Http\Controllers\Api\V1\AdminVendorApprovalController;
 use App\Http\Controllers\Api\V1\AdminVendorDocumentController;
 
+use App\Http\Controllers\Api\V1\Payments\StripePaymentController;
+use App\Http\Controllers\Api\V1\Payments\StripeWebhookController;
+use App\Http\Controllers\Api\V1\Payments\XenditWebhookController;
+
+
 use App\Http\Controllers\Api\V1\AppConfigController;
 use App\Http\Controllers\Api\V1\AppSettingsController;
 
@@ -71,6 +76,10 @@ Route::prefix('v1')->group(function () {
 
     // Payment webhooks (3rd party callbacks)
     Route::post('/webhooks/paymongo', [PaymentWebhookController::class, 'paymongo']);
+
+    Route::post('/webhooks/stripe', [StripeWebhookController::class, 'handle']);
+    Route::post('/webhooks/xendit', [XenditWebhookController::class, 'handle']);
+
 
     // ---------------------------
     // Auth (register/login/OTP)
@@ -212,6 +221,16 @@ Route::prefix('v1')->group(function () {
         Route::post('orders/{order_id}/weight_accepted', [CustomerOrderController::class, 'weightAccepted']);
         Route::post('orders/{order}/confirm_delivery', [CustomerOrderController::class, 'confirmDelivery']);
         Route::post('orders/{order}/feedback', [CustomerOrderController::class, 'feedback']);
+
+
+        //Order Payments
+        Route::post('orders/{order}/payments/card/authorize', [CustomerPaymentController::class, 'authorizeCard']);
+        Route::post('orders/{order}/payments/gcash/create', [CustomerPaymentController::class, 'createGcashInvoice']);
+        Route::post('orders/{order}/payments/card/capture', [CustomerPaymentController::class, 'captureCard']);
+
+        Route::post('orders/{order}/stripe/authorize', [StripePaymentController::class, 'authorizeCard']);
+        Route::post('orders/{order}/stripe/capture', [StripePaymentController::class, 'capture']);
+
     });
 
     // =================================================

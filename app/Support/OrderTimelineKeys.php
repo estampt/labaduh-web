@@ -18,6 +18,8 @@ final class OrderTimelineKeys
     public const WEIGHT_REVIEWED      = 'weight_reviewed';
     public const WEIGHT_ACCEPTED      = 'weight_accepted';
 
+    public const READY_FOR_WASHING    = 'ready_for_washing';
+
     public const WASHING              = 'washing';
     public const READY                = 'ready';
 
@@ -45,6 +47,7 @@ final class OrderTimelineKeys
             self::WEIGHT_REVIEWED,
             self::WEIGHT_ACCEPTED,
 
+            self::READY_FOR_WASHING,
             self::WASHING,
             self::READY,
 

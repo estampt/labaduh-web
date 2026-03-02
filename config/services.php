@@ -35,4 +35,13 @@ return [
         ],
     ],
 
+   'stripe' => [
+    'secret' => env('STRIPE_SECRET'),
+    'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+  ],
+  'xendit' => [
+    'secret' => env('XENDIT_SECRET_KEY'),
+    'webhook_token' => env('XENDIT_WEBHOOK_TOKEN'),
+  ],
+
 ];
