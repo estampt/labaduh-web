@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Payments;
+namespace App\Http\Controllers\Api\V1\Payments;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
@@ -21,17 +21,17 @@ class XenditWebhookController extends Controller
         $data = json_decode($payload, true) ?? [];
         $hash = hash('sha256', $payload);
 
-        // Xendit commonly sends a callback token header (configure in dashboard)
+        // ✅ Verify callback token (Xendit sends x-callback-token header if configured)
         $token = $request->header('x-callback-token') ?? $request->header('X-CALLBACK-TOKEN');
         $sigVerified = ($token && $token === config('services.xendit.webhook_token')) ? 'yes' : 'no';
 
-        // Example: invoice.paid / invoice.expired
+        // Xendit invoice events often include: event, status, id, external_id, amount, currency
         $eventType = $data['event'] ?? ($data['status'] ?? 'unknown');
 
-        // Find payment by provider_ref (invoice id) OR external_id
         $invoiceId = $data['id'] ?? null;
         $externalId = $data['external_id'] ?? null;
 
+        // Find payment by invoice id or external id
         $payment = Payment::query()
             ->where('provider', 'xendit')
             ->where(function ($q) use ($invoiceId, $externalId) {
@@ -42,42 +42,40 @@ class XenditWebhookController extends Controller
             ->first();
 
         if (!$payment) {
+            // Return 200 so Xendit doesn't keep retrying forever
             return response('payment not found', 200);
         }
 
-        // ✅ Do everything idempotently inside a transaction (prevents double transitions)
-        DB::transaction(function () use (&$payment, $data, $eventType, $sigVerified, $invoiceId, $hash) {
+        DB::transaction(function () use ($payment, $data, $hash, $sigVerified, $eventType, $invoiceId) {
             $payment = Payment::query()->whereKey($payment->id)->lockForUpdate()->firstOrFail();
 
             $before = $payment->status;
 
             $status = strtolower((string)($data['status'] ?? ''));
-            if ($status === 'paid' || ($eventType === 'invoice.paid')) {
-                // Idempotent
-                if ($payment->status !== 'paid') {
-                    $payment->status = 'paid';
-                    $payment->paid_at = $payment->paid_at ?? now();
-                    $payment->save();
-                }
-            } elseif ($status === 'expired' || ($eventType === 'invoice.expired')) {
-                if (!in_array($payment->status, ['expired', 'paid'], true)) {
-                    $payment->status = 'expired';
-                    $payment->failed_at = $payment->failed_at ?? now();
-                    $payment->save();
-                }
-            } elseif ($status === 'failed' || ($eventType === 'invoice.failed')) {
-                if (!in_array($payment->status, ['failed', 'paid'], true)) {
-                    $payment->status = 'failed';
-                    $payment->failed_at = $payment->failed_at ?? now();
-                    $payment->save();
-                }
+
+            // ✅ Map Xendit invoice status -> our payment status
+            if ($status === 'paid' || $eventType === 'invoice.paid') {
+                $payment->status = 'paid';
+                $payment->paid_at = $payment->paid_at ?? now();
+            } elseif ($status === 'expired' || $eventType === 'invoice.expired') {
+                $payment->status = 'expired';
+                $payment->failed_at = $payment->failed_at ?? now();
+            } elseif ($status === 'failed' || $eventType === 'invoice.failed') {
+                $payment->status = 'failed';
+                $payment->failed_at = $payment->failed_at ?? now();
             }
 
-            // amount from xendit payload is usually major units; convert to cents if provided
+            // Xendit amount is major units
             $amountMajor = $data['amount'] ?? null;
             $amountCents = is_numeric($amountMajor) ? (int) round(((float)$amountMajor) * 100) : null;
 
-            // ✅ Record webhook event (audit trail)
+            $payment->metadata = array_merge($payment->metadata ?? [], [
+                'invoice_status' => $data['status'] ?? null,
+            ]);
+
+            $payment->save();
+
+            // Audit event
             $this->recorder->record(
                 payment: $payment,
                 provider: 'xendit',
@@ -92,64 +90,43 @@ class XenditWebhookController extends Controller
                 payloadHash: $hash
             );
 
-            // ✅ Sync order.payment_status + optional order.status progression
-            $order = Order::query()
-                ->whereKey($payment->order_id)
-                ->lockForUpdate()
-                ->first();
+            // ✅ Sync to order
+            $order = Order::query()->whereKey($payment->order_id)->lockForUpdate()->first();
+            if (!$order) return;
 
-            if (!$order) {
-                return;
-            }
-
-            // If already paid, do nothing (idempotent)
-            if (($order->payment_status ?? null) === 'paid') {
-                return;
-            }
+            // If already paid, do nothing
+            if (($order->payment_status ?? null) === 'paid') return;
 
             if ($payment->status === 'paid') {
-                // Update order payment fields
                 $order->payment_status = 'paid';
-                if (property_exists($order, 'paid_at') || array_key_exists('paid_at', $order->getAttributes())) {
-                    $order->paid_at = $order->paid_at ?? now();
+
+                // advance order after payment
+                if ($order->status === OrderTimelineKeys::WEIGHT_ACCEPTED) {
+                    $order->status = OrderTimelineKeys::READY_FOR_WASHING;
+
+                    app(OrderTimelineRecorder::class)->record(
+                        $order,
+                        OrderTimelineKeys::READY_FOR_WASHING,
+                        'system',
+                        null,
+                        ['provider' => 'xendit', 'payment_id' => $payment->id]
+                    );
                 }
+
                 $order->save();
 
-                // Timeline record (optional but recommended)
                 app(OrderTimelineRecorder::class)->record(
                     $order,
                     'payment_paid',
                     'system',
                     null,
-                    [
-                        'provider' => 'xendit',
-                        'method' => $payment->method,
-                        'payment_id' => $payment->id,
-                        'invoice_id' => $payment->provider_ref,
-                    ]
+                    ['provider' => 'xendit', 'payment_id' => $payment->id]
                 );
+            }
 
-                // ✅ Optional auto-advance ONLY if your flow is ready
-                // Your customer confirms weight via weightAccepted() -> WEIGHT_ACCEPTED
-                if ($order->status === OrderTimelineKeys::READY_FOR_WASHING) {
-                    // If you have a constant for WASHING, prefer it; else keep as-is to avoid breaking transitions.
-                    $next = defined(OrderTimelineKeys::class . '::WASHING')
-                        ? constant(OrderTimelineKeys::class . '::WASHING')
-                        : null;
-
-                    if ($next && $next !== $order->status) {
-                        $order->status = $next;
-                        $order->save();
-
-                        app(OrderTimelineRecorder::class)->record(
-                            $order,
-                            $next,
-                            'system',
-                            null,
-                            ['reason' => 'auto_after_payment']
-                        );
-                    }
-                }
+            if (in_array($payment->status, ['failed', 'expired'], true)) {
+                $order->payment_status = 'failed';
+                $order->save();
             }
         });
 

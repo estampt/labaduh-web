@@ -49,6 +49,7 @@ use App\Http\Controllers\Api\V1\AdminVendorDocumentController;
 
 use App\Http\Controllers\Api\V1\Payments\StripePaymentController;
 use App\Http\Controllers\Api\V1\Payments\StripeWebhookController;
+use App\Http\Controllers\Api\V1\Payments\XenditPaymentController;
 use App\Http\Controllers\Api\V1\Payments\XenditWebhookController;
 
 
@@ -79,7 +80,6 @@ Route::prefix('v1')->group(function () {
 
     Route::post('/webhooks/stripe', [StripeWebhookController::class, 'handle']);
     Route::post('/webhooks/xendit', [XenditWebhookController::class, 'handle']);
-
 
     // ---------------------------
     // Auth (register/login/OTP)
@@ -224,12 +224,16 @@ Route::prefix('v1')->group(function () {
 
 
         //Order Payments
-        Route::post('orders/{order}/payments/card/authorize', [CustomerPaymentController::class, 'authorizeCard']);
+        /*Route::post('orders/{order}/payments/card/authorize', [CustomerPaymentController::class, 'authorizeCard']);
         Route::post('orders/{order}/payments/gcash/create', [CustomerPaymentController::class, 'createGcashInvoice']);
         Route::post('orders/{order}/payments/card/capture', [CustomerPaymentController::class, 'captureCard']);
+        */
 
         Route::post('orders/{order}/stripe/authorize', [StripePaymentController::class, 'authorizeCard']);
         Route::post('orders/{order}/stripe/capture', [StripePaymentController::class, 'capture']);
+
+
+        Route::post('orders/{order}/xendit/gcash/create-invoice', [XenditPaymentController::class, 'createGcashInvoice']);
 
     });
 
