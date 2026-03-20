@@ -101,7 +101,7 @@ class XenditWebhookController extends Controller
                 $order->payment_status = 'paid';
 
                 // advance order after payment
-                if ($order->status === OrderTimelineKeys::WEIGHT_ACCEPTED) {
+                if ($order->status === OrderTimelineKeys::WEIGHT_ACCEPTED||$order->status === OrderTimelineKeys::AWAITING_PAYMENT) {
                     $order->status = OrderTimelineKeys::READY_FOR_WASHING;
 
                     app(OrderTimelineRecorder::class)->record(

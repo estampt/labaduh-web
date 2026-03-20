@@ -69,89 +69,119 @@ class VendorOrderController extends Controller
     }
 
 
-    public function getActiveOrderbyShop(Request $request, int $shopId)
-    {
-        $perPage = (int) ($request->get('per_page', 10000));
 
-        $orders = Order::query()
-            ->select([
-                'orders.*',
-                'orders.subtotal',
-                'orders.delivery_fee',
-                'orders.service_fee',
-                'orders.discount',
-            ])
-            ->where('accepted_shop_id', $shopId)
-            ->where('status', '!=', 'archived')
-            ->with([
-                'customer:id,name,profile_photo_url,address_line1,address_line2,postal_code,latitude,longitude',
-                'acceptedShop' => function ($q) {
-                    $q->select([
-                            'id',
-                            'name',
-                            'profile_photo_url',
-                            'latitude',
-                            'longitude',
-                        ])
-                        ->addSelect([
-                            'avg_rating' => DB::table('order_feedbacks')
-                                ->selectRaw('AVG(rating)')
-                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
-                            'ratings_count' => DB::table('order_feedbacks')
-                                ->selectRaw('COUNT(*)')
-                                ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
-                        ]);
-                },
 
-                'items' => function ($q) {
-                    $q->select([
+public function getActiveOrderbyShop(Request $request, int $vendorId, int $shopId)
+{
+    $perPage = (int) ($request->get('per_page', 10000));
+
+    Log::info('getActiveOrderbyShop: request received', [
+        'shop_id' => $shopId,
+        'per_page' => $perPage,
+        'query_params' => $request->query(),
+        'user_id' => optional($request->user())->id,
+    ]);
+
+    $orders = Order::query()
+        ->select([
+            'orders.*',
+            'orders.subtotal',
+            'orders.delivery_fee',
+            'orders.service_fee',
+            'orders.discount',
+        ])
+        ->where('accepted_shop_id', $shopId)
+        ->where('status', '!=', 'archived')
+        ->with([
+            'customer:id,name,profile_photo_url,address_line1,address_line2,postal_code,latitude,longitude',
+            'acceptedShop' => function ($q) {
+                $q->select([
                         'id',
-                        'order_id',
-                        'service_id',
-                        'service_name',
-                        'qty',
-                        'qty_estimated',
-                        'qty_actual',
-                        'uom',
-                        'pricing_model',
-                        'minimum',
-                        'min_price',
-                        'price_per_uom',
-                        'computed_price',
-                        'estimated_price',
-                        'final_price',
-                        'created_at',
-                        'updated_at',
-                    ])->orderBy('id');
-                },
+                        'name',
+                        'profile_photo_url',
+                        'latitude',
+                        'longitude',
+                    ])
+                    ->addSelect([
+                        'avg_rating' => DB::table('order_feedbacks')
+                            ->selectRaw('AVG(rating)')
+                            ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                        'ratings_count' => DB::table('order_feedbacks')
+                            ->selectRaw('COUNT(*)')
+                            ->whereColumn('order_feedbacks.vendor_shop_id', 'vendor_shops.id'),
+                    ]);
+            },
 
-                'items.options' => function ($q) {
-                    $q->select([
-                        'id',
-                        'order_item_id',
-                        'service_option_id',
-                        'service_option_name',
-                        'price',
-                        'is_required',
-                        'computed_price',
-                        'created_at',
-                        'updated_at',
-                    ])->orderBy('id');
-                },
-            ])
-            ->orderByDesc('created_at')
-            ->cursorPaginate($perPage);
+            'items' => function ($q) {
+                $q->select([
+                    'id',
+                    'order_id',
+                    'service_id',
+                    'service_name',
+                    'qty',
+                    'qty_estimated',
+                    'qty_actual',
+                    'uom',
+                    'pricing_model',
+                    'minimum',
+                    'min_price',
+                    'price_per_uom',
+                    'computed_price',
+                    'estimated_price',
+                    'final_price',
+                    'created_at',
+                    'updated_at',
+                ])->orderBy('id');
+            },
 
+            'items.options' => function ($q) {
+                $q->select([
+                    'id',
+                    'order_item_id',
+                    'service_option_id',
+                    'service_option_name',
+                    'price',
+                    'is_required',
+                    'computed_price',
+                    'created_at',
+                    'updated_at',
+                ])->orderBy('id');
+            },
+        ])
+        ->orderByDesc('created_at')
+        ->cursorPaginate($perPage);
 
-        $data = collect($orders->items())
-            ->map(fn (Order $order) => $this->transformOrderForVendor($order, $shopId))
-            ->values();
+    Log::info('getActiveOrderbyShop: orders fetched', [
+        'shop_id' => $shopId,
+        'count' => count($orders->items()),
+        'next_cursor' => $orders->nextCursor()?->encode(),
+        'order_ids' => collect($orders->items())->pluck('id')->values()->all(),
+    ]);
 
-        return response()->json([
-            'data' => $data,
-            'cursor' => $orders->nextCursor()?->encode(),
-        ]);
-    }
+    $data = collect($orders->items())
+        ->map(function (Order $order) use ($shopId) {
+            Log::debug('Transforming vendor order', [
+                'order_id' => $order->id,
+                'shop_id' => $shopId,
+                'status' => $order->status,
+                'accepted_shop_id' => $order->accepted_shop_id,
+                'customer_id' => $order->customer_id,
+            ]);
+
+            return $this->transformOrderForVendor($order, $shopId);
+        })
+        ->values();
+
+    Log::info('getActiveOrderbyShop: response ready', [
+        'shop_id' => $shopId,
+        'data_count' => $data->count(),
+    ]);
+
+    return response()->json([
+        'data' => $data,
+        'cursor' => $orders->nextCursor()?->encode(),
+    ]);
+}
 
     protected function transformOrderForVendor(Order $order, int $shopId): array
     {
@@ -651,7 +681,7 @@ public function weightReviewed(Request $request, Vendor $vendor, VendorShop $sho
                 false // default if not set
             );
 
-            $nextStatus = OrderTimelineKeys::WEIGHT_REVIEWED;
+            $nextStatus = OrderTimelineKeys::WEIGHT_CONFIRMED;
 
             if ($weightAutoApprove) {
 
@@ -662,7 +692,7 @@ public function weightReviewed(Request $request, Vendor $vendor, VendorShop $sho
 
                 $order->fill($orderUpdates)->save();
 
-                $nextStatus = OrderTimelineKeys::WEIGHT_ACCEPTED;
+                $nextStatus = OrderTimelineKeys::AWAITING_PAYMENT;
             }
 
 
@@ -734,7 +764,7 @@ public function weightReviewed(Request $request, Vendor $vendor, VendorShop $sho
         $this->ensureOrderBelongsToShop($order, $shop);
         $this->autoApproveIfExpired($order);
 
-        $this->transition($order, OrderTimelineKeys::WEIGHT_REVIEWED, OrderTimelineKeys::WEIGHT_ACCEPTED);
+        $this->transition($order, OrderTimelineKeys::WEIGHT_CONFIRMED, OrderTimelineKeys::WEIGHT_ACCEPTED);
 
         app(OrderTimelineRecorder::class)->record(
             $order,

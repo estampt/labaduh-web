@@ -329,7 +329,7 @@ class VendorOrderBroadcastController extends Controller
 
 
 
-    public function getBroadcastedOrderHeadersByShop(Request $request, int $shopId)
+    public function getBroadcastedOrderHeadersByShop(Request $request, int$vendorId, int $shopId)
     {
         $perPage = (int) ($request->get('per_page', 10));
 
@@ -416,28 +416,24 @@ class VendorOrderBroadcastController extends Controller
         ]);
     }
 
-    public function getBroadcastById(Request $request, int $shopId)
+    public function getBroadcastById(Request $request, int $vendorId, int $shopId)
     {
         $perPage = (int) ($request->get('per_page', 50));
-
-        // ✅ NEW FILTER
         $broadcastIdFilter = $request->get('broadcast_id');
 
         $query = DB::table('order_broadcasts as ob')
             ->where('ob.shop_id', $shopId)
             ->where('ob.status', 'sent')
-
-            // Join orders
             ->join('orders as o', 'o.id', '=', 'ob.order_id')
-
-            // Prevent showing orders already accepted by other shops
             ->where(function ($q) use ($shopId) {
                 $q->whereNull('o.accepted_shop_id')
                   ->orWhere('o.accepted_shop_id', $shopId);
             })
-
-            // Join customer
             ->join('users as u', 'u.id', '=', 'o.customer_id');
+
+        if (!empty($broadcastIdFilter)) {
+            $query->where('ob.id', (int) $broadcastIdFilter);
+        }
 
         // ==========================================================
         // ✅ FILTER BY BROADCAST ID (optional)

@@ -26,8 +26,14 @@ class XenditPaymentController extends Controller
         $user = $request->user();
 
         abort_unless((int) $order->customer_id === (int) $user->id, 403, 'Forbidden');
-        abort_unless($order->status === OrderTimelineKeys::WEIGHT_ACCEPTED, 409, 'Order not ready for payment.');
-        abort_if(($order->payment_status ?? null) === 'paid', 409, 'Order already paid.');
+        abort_unless(
+            in_array($order->status, [
+                OrderTimelineKeys::WEIGHT_ACCEPTED,
+                OrderTimelineKeys::AWAITING_PAYMENT
+            ]),
+            409,
+            'Order not ready for payment.'
+        );abort_if(($order->payment_status ?? null) === 'paid', 409, 'Order already paid.');
 
         // ✅ DB amount is DECIMAL pesos; Invoice expects major units PHP
         $finalPesos = (float) $order->final_total;

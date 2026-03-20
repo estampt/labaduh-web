@@ -15,8 +15,10 @@ final class OrderTimelineKeys
     public const PICKUP_SCHEDULED     = 'pickup_scheduled';
     public const PICKED_UP            = 'picked_up';
 
-    public const WEIGHT_REVIEWED      = 'weight_reviewed';
+    public const WEIGHT_CONFIRMED     = 'weight_confirmed';
     public const WEIGHT_ACCEPTED      = 'weight_accepted';
+
+    public const AWAITING_PAYMENT     = 'awaiting_payment';
 
     public const READY_FOR_WASHING    = 'ready_for_washing';
 
@@ -44,8 +46,9 @@ final class OrderTimelineKeys
             self::PICKUP_SCHEDULED,
             self::PICKED_UP,
 
-            self::WEIGHT_REVIEWED,
+            self::WEIGHT_CONFIRMED,
             self::WEIGHT_ACCEPTED,
+            self::AWAITING_PAYMENT,
 
             self::READY_FOR_WASHING,
             self::WASHING,

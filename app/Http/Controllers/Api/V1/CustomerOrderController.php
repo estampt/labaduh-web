@@ -992,7 +992,7 @@ class CustomerOrderController extends Controller
             // ✅ Timeline transition: reviewed -> accepted
             $this->transition(
                 $order,
-                OrderTimelineKeys::WEIGHT_REVIEWED,
+                OrderTimelineKeys::WEIGHT_CONFIRMED,
                 OrderTimelineKeys::WEIGHT_ACCEPTED
             );
 

@@ -231,7 +231,7 @@ Route::prefix('v1')->group(function () {
 
         Route::post('orders/{order}/stripe/authorize', [StripePaymentController::class, 'authorizeCard']);
         Route::post('orders/{order}/stripe/capture', [StripePaymentController::class, 'capture']);
-
+        Route::post('orders/{order}/stripe/pay-direct', [StripePaymentController::class, 'payCardDirect']);
 
         Route::post('orders/{order}/xendit/gcash/create-invoice', [XenditPaymentController::class, 'createGcashInvoice']);
 
