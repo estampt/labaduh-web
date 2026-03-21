@@ -49,37 +49,61 @@ class StripeWebhookController extends Controller
         $type = $event->type;
         $obj = $event->data->object;
 
-        $paymentId = $obj->metadata->payment_id ?? null;
+        $metadata = isset($obj->metadata) && method_exists($obj->metadata, 'toArray')
+            ? $obj->metadata->toArray()
+            : (array) ($obj->metadata ?? []);
+
+        $paymentId = $metadata['payment_id'] ?? null;
+        $orderId = $metadata['order_id'] ?? null;
+        $intentId = $obj->id ?? null;
 
         Log::info('Stripe webhook parsed', [
             'event_id' => $event->id,
             'type' => $type,
             'payment_id' => $paymentId,
-            'intent_id' => $obj->id ?? null,
+            'order_id' => $orderId,
+            'intent_id' => $intentId,
             'intent_status' => $obj->status ?? null,
             'amount' => $obj->amount ?? null,
             'currency' => $obj->currency ?? null,
+            'metadata' => $metadata,
         ]);
-
-        if (!$paymentId) {
-            Log::warning('Stripe webhook missing payment_id metadata', [
-                'event_id' => $event->id,
-                'type' => $type,
-                'intent_id' => $obj->id ?? null,
-                'metadata' => isset($obj->metadata) ? (array) $obj->metadata : null,
-            ]);
-
-            return response('Missing payment_id metadata', 200);
-        }
 
         $hash = hash('sha256', $payload);
 
-        DB::transaction(function () use ($paymentId, $type, $obj, $sigVerified, $payload, $hash, $event) {
-            $payment = Payment::query()->whereKey($paymentId)->lockForUpdate()->first();
+        DB::transaction(function () use ($paymentId, $orderId, $intentId, $type, $obj, $sigVerified, $payload, $hash, $event) {
+            $payment = null;
+
+            if ($paymentId) {
+                $payment = Payment::query()
+                    ->whereKey($paymentId)
+                    ->lockForUpdate()
+                    ->first();
+            }
+
+            if (!$payment && $intentId) {
+                $payment = Payment::query()
+                    ->where('provider', 'stripe')
+                    ->where('provider_payment_intent_id', $intentId)
+                    ->lockForUpdate()
+                    ->latest('id')
+                    ->first();
+            }
+
+            if (!$payment && $orderId) {
+                $payment = Payment::query()
+                    ->where('order_id', $orderId)
+                    ->where('provider', 'stripe')
+                    ->lockForUpdate()
+                    ->latest('id')
+                    ->first();
+            }
 
             if (!$payment) {
                 Log::warning('Stripe webhook payment not found', [
                     'payment_id' => $paymentId,
+                    'order_id' => $orderId,
+                    'intent_id' => $intentId,
                     'event_id' => $event->id,
                     'type' => $type,
                 ]);
@@ -90,7 +114,7 @@ class StripeWebhookController extends Controller
                 'payment_id' => $payment->id,
                 'order_id' => $payment->order_id,
                 'status_before' => $payment->status,
-                'provider_reference' => $payment->provider_reference ?? null,
+                'provider_payment_intent_id' => $payment->provider_payment_intent_id ?? null,
             ]);
 
             $before = $payment->status;
@@ -100,50 +124,19 @@ class StripeWebhookController extends Controller
                     $payment->status = 'authorized';
                     $payment->authorized_at = $payment->authorized_at ?? now();
                     $payment->save();
-
-                    Log::info('Stripe webhook payment marked authorized', [
-                        'payment_id' => $payment->id,
-                        'status_after' => $payment->status,
-                    ]);
                 }
             } elseif ($type === 'payment_intent.succeeded') {
-                if ($payment->status !== 'paid') {
+                if (!in_array($payment->status, ['paid', 'succeeded'], true)) {
                     $payment->status = 'paid';
                     $payment->paid_at = $payment->paid_at ?? now();
                     $payment->save();
-
-                    Log::info('Stripe webhook payment marked paid', [
-                        'payment_id' => $payment->id,
-                        'status_after' => $payment->status,
-                        'paid_at' => $payment->paid_at,
-                    ]);
-                } else {
-                    Log::info('Stripe webhook payment already paid', [
-                        'payment_id' => $payment->id,
-                    ]);
                 }
             } elseif ($type === 'payment_intent.payment_failed') {
                 if (!in_array($payment->status, ['failed', 'paid'], true)) {
                     $payment->status = 'failed';
                     $payment->failed_at = $payment->failed_at ?? now();
                     $payment->save();
-
-                    Log::warning('Stripe webhook payment marked failed', [
-                        'payment_id' => $payment->id,
-                        'status_after' => $payment->status,
-                        'failed_at' => $payment->failed_at,
-                    ]);
-                } else {
-                    Log::info('Stripe webhook skipped failed update', [
-                        'payment_id' => $payment->id,
-                        'current_status' => $payment->status,
-                    ]);
                 }
-            } else {
-                Log::info('Stripe webhook event ignored for payment status mapping', [
-                    'payment_id' => $payment->id,
-                    'type' => $type,
-                ]);
             }
 
             $this->recorder->record(
@@ -160,14 +153,6 @@ class StripeWebhookController extends Controller
                 payloadHash: $hash
             );
 
-            Log::info('Stripe webhook event recorded', [
-                'payment_id' => $payment->id,
-                'event_id' => $event->id,
-                'type' => $type,
-                'status_before' => $before,
-                'status_after' => $payment->status,
-            ]);
-
             $order = Order::query()->whereKey($payment->order_id)->lockForUpdate()->first();
 
             if (!$order) {
@@ -178,20 +163,10 @@ class StripeWebhookController extends Controller
                 return;
             }
 
-            Log::info('Stripe webhook order found', [
-                'order_id' => $order->id,
-                'order_status_before' => $order->status,
-                'payment_status_before' => $order->payment_status,
-            ]);
-
             if ($payment->status === 'authorized') {
                 if (($order->payment_status ?? null) !== 'authorized') {
                     $order->payment_status = 'authorized';
                     $order->save();
-
-                    Log::info('Stripe webhook order payment_status updated to authorized', [
-                        'order_id' => $order->id,
-                    ]);
 
                     app(OrderTimelineRecorder::class)->record(
                         $order,
@@ -200,11 +175,6 @@ class StripeWebhookController extends Controller
                         null,
                         ['provider' => 'stripe', 'payment_id' => $payment->id]
                     );
-
-                    Log::info('Stripe webhook timeline recorded: payment_authorized', [
-                        'order_id' => $order->id,
-                        'payment_id' => $payment->id,
-                    ]);
                 }
 
                 return;
@@ -221,25 +191,11 @@ class StripeWebhookController extends Controller
 
                 $shouldAdvance = ($order->status === OrderTimelineKeys::AWAITING_PAYMENT);
 
-                Log::info('Stripe webhook paid branch', [
-                    'order_id' => $order->id,
-                    'was_paid' => $wasPaid,
-                    'should_advance' => $shouldAdvance,
-                    'current_order_status' => $order->status,
-                ]);
-
                 if ($shouldAdvance) {
                     $order->status = OrderTimelineKeys::READY_FOR_WASHING;
                 }
 
                 $order->save();
-
-                Log::info('Stripe webhook order saved after paid', [
-                    'order_id' => $order->id,
-                    'order_status_after' => $order->status,
-                    'payment_status_after' => $order->payment_status,
-                    'paid_at' => $order->paid_at ?? null,
-                ]);
 
                 if (!$wasPaid) {
                     app(OrderTimelineRecorder::class)->record(
@@ -249,11 +205,6 @@ class StripeWebhookController extends Controller
                         null,
                         ['provider' => 'stripe', 'payment_id' => $payment->id]
                     );
-
-                    Log::info('Stripe webhook timeline recorded: payment_paid', [
-                        'order_id' => $order->id,
-                        'payment_id' => $payment->id,
-                    ]);
                 }
 
                 if ($shouldAdvance) {
@@ -264,19 +215,8 @@ class StripeWebhookController extends Controller
                         null,
                         ['reason' => 'auto_after_payment']
                     );
-
-                    Log::info('Stripe webhook timeline recorded: READY_FOR_WASHING', [
-                        'order_id' => $order->id,
-                        'payment_id' => $payment->id,
-                    ]);
                 }
             }
-
-            Log::info('Stripe webhook transaction completed', [
-                'event_id' => $event->id,
-                'payment_id' => $payment->id,
-                'order_id' => $payment->order_id,
-            ]);
         });
 
         Log::info('Stripe webhook finished successfully', [

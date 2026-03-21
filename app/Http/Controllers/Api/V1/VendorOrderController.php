@@ -795,7 +795,8 @@ public function weightReviewed(Request $request, Vendor $vendor, VendorShop $sho
             'Waiting for customer approval.'
         );
 
-        $this->transition($order, OrderTimelineKeys::WEIGHT_ACCEPTED, OrderTimelineKeys::WASHING);
+        //$this->transition($order, OrderTimelineKeys::WEIGHT_ACCEPTED, OrderTimelineKeys::WASHING);
+        $this->transition($order, OrderTimelineKeys::READY_FOR_WASHING, OrderTimelineKeys::WASHING);
 
         app(OrderTimelineRecorder::class)->record(
             $order,

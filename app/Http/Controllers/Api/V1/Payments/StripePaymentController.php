@@ -175,12 +175,6 @@ class StripePaymentController extends Controller
         });
     }
 
-    /**
-     * Direct card payment:
-     * - no authorize step
-     * - create PaymentIntent for immediate confirmation/capture
-     * - frontend uses returned client_secret in PaymentSheet
-     */
     public function payCardDirect(Request $request, Order $order)
     {
         $user = $request->user();
@@ -213,11 +207,12 @@ class StripePaymentController extends Controller
                 'requires_action',
                 'processing',
                 'succeeded',
+                'paid',
             ])
             ->latest('id')
             ->first();
 
-        if ($existing && $existing->status === 'succeeded') {
+        if ($existing && in_array($existing->status, ['succeeded', 'paid'], true)) {
             abort(409, 'Order already paid.');
         }
 
@@ -240,12 +235,29 @@ class StripePaymentController extends Controller
         DB::beginTransaction();
 
         try {
+            $payment = Payment::create([
+                'order_id' => $order->id,
+                'provider' => 'stripe',
+                'method' => 'card',
+                'currency' => strtoupper($currency),
+                'amount' => $amount / 100,
+                'status' => 'initiated',
+                'idempotency_key' => $idempotencyKey,
+                'provider_payment_intent_id' => null,
+                'client_secret' => null,
+                'reference' => null,
+                'meta' => [
+                    'flow' => 'direct_capture',
+                ],
+            ]);
+
             $intent = $stripe->paymentIntents->create([
                 'amount' => $amount,
                 'currency' => $currency,
                 'capture_method' => 'automatic',
                 'automatic_payment_methods' => ['enabled' => true],
                 'metadata' => [
+                    'payment_id' => (string) $payment->id,
                     'order_id' => (string) $order->id,
                     'customer_id' => (string) $user->id,
                     'payment_flow' => 'direct_capture',
@@ -255,20 +267,15 @@ class StripePaymentController extends Controller
                 'idempotency_key' => $idempotencyKey,
             ]);
 
-            $payment = Payment::create([
-                'order_id' => $order->id,
-                'provider' => 'stripe',
-                'method' => 'card', // ✅ FIXED
-                'currency' => strtoupper($currency),
-                'amount' => $amount / 100,
+            $payment->update([
                 'status' => $intent->status,
                 'provider_payment_intent_id' => $intent->id,
                 'client_secret' => $intent->client_secret,
                 'reference' => $intent->id,
-                'idempotency_key' => $idempotencyKey,
-                'meta' => [
+                'meta' => array_merge($payment->meta ?? [], [
                     'flow' => 'direct_capture',
-                ],
+                    'stripe_status' => $intent->status,
+                ]),
             ]);
 
             Log::info('Stripe direct payment created', [
@@ -278,6 +285,7 @@ class StripePaymentController extends Controller
                 'status' => $intent->status,
                 'amount' => $amount,
                 'currency' => $currency,
+                'metadata' => $intent->metadata->toArray(),
             ]);
 
             DB::commit();
