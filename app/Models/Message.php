@@ -14,6 +14,7 @@ class Message extends Model
         'id',
         'thread_id',
         'sender_id',
+        'shop_id',
         'body',
         'sent_at',
     ];

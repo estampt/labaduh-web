@@ -125,10 +125,6 @@ class PushNotificationService
                 ]);
             }
 
-            \Log::info('FCM multicast result', [
-                'success' => $report->successes()->count(),
-                'failure' => $report->failures()->count(),
-            ]);
 
             foreach ($report->failures()->getItems() as $failure) {
                 \Log::warning('FCM failure detail', [

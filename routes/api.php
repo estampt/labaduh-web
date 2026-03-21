@@ -52,6 +52,10 @@ use App\Http\Controllers\Api\V1\Payments\StripeWebhookController;
 use App\Http\Controllers\Api\V1\Payments\XenditPaymentController;
 use App\Http\Controllers\Api\V1\Payments\XenditWebhookController;
 
+///Chat
+use App\Http\Controllers\Api\V1\ChatThreadController;
+use App\Http\Controllers\Api\V1\ChatMessageController;
+
 
 use App\Http\Controllers\Api\V1\AppConfigController;
 use App\Http\Controllers\Api\V1\AppSettingsController;
@@ -142,6 +146,14 @@ Route::prefix('v1')->group(function () {
         Route::get('/auth/me', [AuthController::class, 'me']);
 
         // ---------------------------
+        // Messenger
+        // ---------------------------
+        Route::post('/chat/threads', [ChatThreadController::class, 'upsert']);
+        Route::get('/chat/threads/{thread}', [ChatThreadController::class, 'show']);
+        Route::get('/chat/threads/{thread}/messages', [ChatMessageController::class, 'index']);
+        Route::post('/chat/threads/{thread}/messages', [ChatMessageController::class, 'store']);
+
+        // ---------------------------
         // Vendor job offers
         // ---------------------------
         Route::get('/vendor/job-offers', [VendorJobController::class, 'index']);
@@ -188,6 +200,9 @@ Route::prefix('v1')->group(function () {
 
         // Push token register (authenticated)
         Route::post('/push/token', [PushTokenController::class, 'store']);
+
+
+
     });
 
     // =================================================
