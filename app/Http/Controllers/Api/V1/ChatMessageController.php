@@ -8,6 +8,7 @@ use App\Models\MessageThread;
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class ChatMessageController extends Controller
@@ -16,8 +17,17 @@ class ChatMessageController extends Controller
     {
         $user = $request->user();
 
-        $allowed = (int) $thread->customer_user_id === (int) $user->id
-            || (!empty($thread->vendor_user_id) && (int) $thread->vendor_user_id === (int) $user->id);
+        $isCustomer = (int) $thread->customer_user_id === (int) $user->id;
+
+        $isShopUser = false;
+        if (!empty($thread->shop_id)) {
+            $isShopUser = DB::table('vendor_shops')
+                ->where('id', $thread->shop_id)
+                ->where('vendor_id', $user->vendor_id ?? 0)
+                ->exists();
+        }
+
+        $allowed = $isCustomer || $isShopUser;
 
         abort_unless($allowed, 403, 'Not allowed.');
 
@@ -54,8 +64,17 @@ class ChatMessageController extends Controller
     {
         $user = $request->user();
 
-        $allowed = (int) $thread->customer_user_id === (int) $user->id
-            || (!empty($thread->vendor_user_id) && (int) $thread->vendor_user_id === (int) $user->id);
+        $isCustomer = (int) $thread->customer_user_id === (int) $user->id;
+
+        $isShopUser = false;
+        if (!empty($thread->shop_id)) {
+            $isShopUser = DB::table('vendor_shops')
+                ->where('id', $thread->shop_id)
+                ->where('vendor_id', $user->vendor_id ?? 0)
+                ->exists();
+        }
+
+        $allowed = $isCustomer || $isShopUser;
 
         abort_unless($allowed, 403, 'Not allowed.');
 
@@ -102,63 +121,96 @@ class ChatMessageController extends Controller
             return $message;
         });
 
-        $receiverId = ((int) $user->id === (int) $thread->customer_user_id)
-            ? (int) $thread->vendor_user_id
+        $isCustomerSender = (int) $user->id === (int) $thread->customer_user_id;
+
+        // Customer -> notify shop
+        // Shop -> notify customer
+        $receiverId = $isCustomerSender
+            ? (!empty($thread->vendor_user_id) ? (int) $thread->vendor_user_id : null)
             : (int) $thread->customer_user_id;
 
-        if (empty($receiverId)) {
-            return response()->json([
-                'message' => $message,
-                'pushed' => false,
+        $route = !empty($thread->order_id)
+            ? '/c/orders/' . $thread->order_id . '/messages'
+            : '/notifications';
+
+        $notificationData = [
+            'type' => 'chat_message',
+            'thread_id' => (string) $thread->id,
+            'message_id' => (string) $message->id,
+            'sender_id' => (string) $user->id,
+            'shop_id' => !empty($thread->shop_id) ? (string) $thread->shop_id : null,
+            'order_id' => !empty($thread->order_id) ? (string) $thread->order_id : null,
+            'title' => 'New message',
+            'body' => Str::limit($payload['body'], 120),
+            'route' => $route,
+        ];
+
+        if (!empty($receiverId)) {
+            DB::table('notifications')->insert([
+                'id' => (string) Str::uuid(),
+                'type' => 'chat_message',
+                'inbox_type' => 'message',
+                'notifiable_type' => 'App\\Models\\User',
+                'notifiable_id' => $receiverId,
+                'data' => json_encode($notificationData),
+                'read_at' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
         }
 
-        DB::table('notifications')->insert([
-            'id' => (string) Str::uuid(),
-            'type' => 'chat_message',
-            'inbox_type' => 'message',
-            'notifiable_type' => 'App\\Models\\User',
-            'notifiable_id' => $receiverId,
-            'data' => json_encode([
-                'type' => 'chat_message',
-                'thread_id' => $thread->id,
-                'message_id' => $message->id,
-                'sender_id' => $user->id,
-                'shop_id' => $thread->shop_id,
-                'order_id' => $thread->order_id,
-                'title' => 'New message',
-                'body' => Str::limit($payload['body'], 120),
-            ]),
-            'read_at' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
         $title = 'New message';
-        $body = \Illuminate\Support\Str::limit($payload['body'], 80);
+        $body = Str::limit($payload['body'], 80);
 
         $data = [
             'type' => 'chat_message',
             'thread_id' => (string) $thread->id,
             'message_id' => (string) $message->id,
             'sender_id' => (string) $user->id,
+            'route' => $route,
         ];
 
-        if (!empty($thread->shop_id)) $data['shop_id'] = (string) $thread->shop_id;
-        if (!empty($thread->order_id)) $data['order_id'] = (string) $thread->order_id;
+        if (!empty($thread->shop_id)) {
+            $data['shop_id'] = (string) $thread->shop_id;
+        }
 
-        /** @var \App\Services\PushNotificationService $push */
-        $push = app(\App\Services\PushNotificationService::class);
+        if (!empty($thread->order_id)) {
+            $data['order_id'] = (string) $thread->order_id;
+        }
 
-        if (!empty($thread->shop_id) && (int)$receiverId === (int)$thread->vendor_user_id) {
-            $push->sendToSpecificShop($receiverId, (int)$thread->shop_id, $title, $body, $data);
-        } else {
-            $push->sendToUser($receiverId, $title, $body, $data);
+        $pushed = false;
+
+        try {
+            /** @var \App\Services\PushNotificationService $push */
+            $push = app(\App\Services\PushNotificationService::class);
+
+            if ($isCustomerSender) {
+                // Customer -> vendor shop
+                if (!empty($receiverId) && !empty($thread->shop_id)) {
+                    $push->sendToSpecificShop($receiverId, (int) $thread->shop_id, $title, $body, $data);
+                    $pushed = true;
+                }
+            } else {
+                // Shop -> customer
+                if (!empty($receiverId)) {
+                    $push->sendToUser($receiverId, $title, $body, $data);
+                    $pushed = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error('Chat push failed', [
+                'thread_id' => (string) $thread->id,
+                'message_id' => (string) $message->id,
+                'receiver_id' => $receiverId,
+                'shop_id' => $thread->shop_id,
+                'is_customer_sender' => $isCustomerSender,
+                'error' => $e->getMessage(),
+            ]);
         }
 
         return response()->json([
             'message' => $message,
-            'pushed' => true,
+            'pushed' => $pushed,
         ]);
     }
 }

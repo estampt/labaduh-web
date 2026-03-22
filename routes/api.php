@@ -148,6 +148,7 @@ Route::prefix('v1')->group(function () {
         // ---------------------------
         // Messenger
         // ---------------------------
+        Route::get('/chat/threads', [ChatThreadController::class, 'index']);
         Route::post('/chat/threads', [ChatThreadController::class, 'upsert']);
         Route::get('/chat/threads/{thread}', [ChatThreadController::class, 'show']);
         Route::get('/chat/threads/{thread}/messages', [ChatMessageController::class, 'index']);
